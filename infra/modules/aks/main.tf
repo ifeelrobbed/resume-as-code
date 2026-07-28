@@ -23,9 +23,6 @@ resource "azurerm_kubernetes_cluster" "this" {
     vm_size        = var.node_vm_size
     node_count     = var.node_count
     vnet_subnet_id = var.subnet_id
-    priority       = var.use_spot ? "Spot" : "Regular"
-    eviction_policy = var.use_spot ? "Delete" : null
-    spot_max_price  = var.use_spot ? var.spot_max_price : null
   }
 
   identity {

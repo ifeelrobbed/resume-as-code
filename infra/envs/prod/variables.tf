@@ -7,7 +7,7 @@ variable "name_prefix" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "eastus2"
+  default     = "westus2"
 }
 
 variable "resource_group_name" {
@@ -25,13 +25,7 @@ variable "kubernetes_version" {
 variable "node_vm_size" {
   description = "VM size for the single node pool"
   type        = string
-  default     = "Standard_B2s"
-}
-
-variable "use_spot" {
-  description = "Run the node pool on Spot pricing"
-  type        = bool
-  default     = true
+  default     = "Standard_D2als_v7"
 }
 
 variable "tags" {

@@ -37,6 +37,5 @@ module "aks" {
   subnet_id           = module.networking.subnet_id
   kubernetes_version  = var.kubernetes_version
   node_vm_size        = var.node_vm_size
-  use_spot            = var.use_spot
   tags                = var.tags
 }

@@ -50,8 +50,7 @@ done is instead handled by NSGs + NetworkPolicies, ingress-nginx +
 cert-manager, self-hosted Prometheus/Grafana, and `az aks command invoke`
 for admin access.
 
-Rough floor at these defaults (1x Standard_B2s on Spot, Free-tier control
+Rough floor at these defaults (1x Standard_B2s on-demand, Free-tier control
 plane, Standard LB, one public IP): well under $50/month. The single
 biggest lever if this needs to shrink further is dropping to a smaller
-VM size; the single biggest lever if it needs to grow is turning off
-`use_spot` before anything that must not be interrupted mid-demo.
+VM size.

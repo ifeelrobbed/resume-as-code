@@ -36,18 +36,6 @@ variable "node_count" {
   default     = 1
 }
 
-variable "use_spot" {
-  description = "Run the node pool on Spot pricing. Cheaper, but nodes can be evicted."
-  type        = bool
-  default     = true
-}
-
-variable "spot_max_price" {
-  description = "Max hourly price willing to pay for Spot nodes. -1 means pay up to the on-demand price."
-  type        = number
-  default     = -1
-}
-
 variable "tags" {
   description = "Tags applied to the cluster"
   type        = map(string)

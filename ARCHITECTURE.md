@@ -28,8 +28,7 @@ DNS). Argo CD owns everything running inside the cluster. Nothing is
 
 ## Cost-conscious decisions
 
-Motivated by a prior landing-zone attempt where a barebones Azure
-Firewall alone ran ~$912/month. Explicitly avoided:
+Running a full blown landing zone for this site is not feasible from a cost perpective. Explicitly avoided:
 
 - **Azure Firewall** - NSGs + Kubernetes NetworkPolicies instead.
 - **Application Gateway** - ingress-nginx + cert-manager (Let's Encrypt).
@@ -40,10 +39,9 @@ Firewall alone ran ~$912/month. Explicitly avoided:
 - **Standard AKS control-plane tier** - `sku_tier = "Free"`, since the
   SLA it buys doesn't matter here.
 - **Azure CNI** - `kubenet` instead, simpler and cheaper at this scale.
-- **Spot pricing** on the single node pool by default, accepting that an
-  eviction takes the (single-node) site down until rescheduled - a
-  deliberate tradeoff, disabled (`use_spot = false`) before anything
-  like a live interview walkthrough.
+- **Spot pricing** - not used. Azure doesn't allow the default/system
+  node pool to run at Spot priority, and this module deliberately has
+  only the one pool, so the node runs on-demand.
 
 Rough floor: well under $50/month at MVP scale.
 
