@@ -3,14 +3,14 @@
 # bootstrap script. Create it once, by hand or via bootstrap/, before
 # running terraform init here:
 #
-#   az group create -n resume-site-tfstate-rg -l eastus2
-#   az storage account create -n resumesitetfstate -g resume-site-tfstate-rg \
+#   az group create -n rg-resume-site-tfstate -l eastus2
+#   az storage account create -n resumesitetfstate -g rg-resume-site-tfstate \
 #     -l eastus2 --sku Standard_LRS --min-tls-version TLS1_2
 #   az storage container create -n tfstate --account-name resumesitetfstate
 
 terraform {
   backend "azurerm" {
-    resource_group_name  = "resume-site-tfstate-rg"
+    resource_group_name  = "rg-resume-site-tfstate"
     storage_account_name = "resumesitetfstate" # must be globally unique - rename before first use
     container_name       = "tfstate"
     key                  = "prod.tfstate"

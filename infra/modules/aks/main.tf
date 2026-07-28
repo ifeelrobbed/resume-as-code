@@ -5,16 +5,16 @@
 # sku_tier = "Free" avoids the paid Standard control-plane tier, which
 # only buys an SLA that doesn't matter for a portfolio project.
 #
-# use_spot defaults to true for cost, but with node_count = 1 an eviction
-# takes the whole site down until Azure reschedules it. That's an
-# acceptable tradeoff for a demo site; set use_spot = false once this
-# needs to stay up during, say, a live interview walkthrough.
+# No Spot pricing here: Azure doesn't allow the default/system node pool
+# to run at Spot priority (only a secondary node pool can), and this
+# module deliberately has just the one pool.
 
 resource "azurerm_kubernetes_cluster" "this" {
-  name                = "${var.name_prefix}-aks"
+  name                = "aks-${var.name_prefix}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  dns_prefix          = "${var.name_prefix}-aks"
+  node_resource_group = "${var.resource_group_name}-aks-nodes"
+  dns_prefix          = "aks-${var.name_prefix}"
   kubernetes_version  = var.kubernetes_version
   sku_tier            = "Free"
 

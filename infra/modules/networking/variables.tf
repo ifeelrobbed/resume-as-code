@@ -1,5 +1,5 @@
 variable "name_prefix" {
-  description = "Short prefix used to name all networking resources"
+  description = "Workload-and-environment prefix (<workload>-<environment>); each networking resource prepends its own type prefix (vnet-, snet-, nsg-)"
   type        = string
 }
 

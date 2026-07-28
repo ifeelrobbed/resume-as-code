@@ -17,8 +17,8 @@ stops at the cluster boundary.
 Remote state needs somewhere to live before `terraform init` will work:
 
 ```
-az group create -n resume-site-tfstate-rg -l eastus2
-az storage account create -n resumesitetfstate -g resume-site-tfstate-rg \
+az group create -n rg-resume-site-tfstate -l eastus2
+az storage account create -n resumesitetfstate -g rg-resume-site-tfstate \
   -l eastus2 --sku Standard_LRS --min-tls-version TLS1_2
 az storage container create -n tfstate --account-name resumesitetfstate
 ```

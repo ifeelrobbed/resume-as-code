@@ -1,5 +1,5 @@
 variable "name_prefix" {
-  description = "Short prefix used to name the cluster"
+  description = "Workload-and-environment prefix (<workload>-<environment>); combined with the aks- type prefix to name the cluster"
   type        = string
 }
 

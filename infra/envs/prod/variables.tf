@@ -1,7 +1,7 @@
 variable "name_prefix" {
-  description = "Short prefix used to name all resources"
+  description = "Workload-and-environment prefix (<workload>-<environment>); each resource name prepends its own type abbreviation, e.g. vnet-<name_prefix>"
   type        = string
-  default     = "resumesite"
+  default     = "resume-site-prod"
 }
 
 variable "location" {
@@ -13,7 +13,7 @@ variable "location" {
 variable "resource_group_name" {
   description = "Resource group for all app resources (separate from the tfstate RG)"
   type        = string
-  default     = "resume-site-prod-rg"
+  default     = "rg-resume-site-prod"
 }
 
 variable "kubernetes_version" {

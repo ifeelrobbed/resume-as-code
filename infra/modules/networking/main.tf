@@ -3,7 +3,7 @@
 # cluster plus these NSG rules are enough control for a single-purpose site.
 
 resource "azurerm_virtual_network" "this" {
-  name                = "${var.name_prefix}-vnet"
+  name                = "vnet-${var.name_prefix}"
   address_space       = [var.vnet_cidr]
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -11,14 +11,14 @@ resource "azurerm_virtual_network" "this" {
 }
 
 resource "azurerm_subnet" "aks" {
-  name                 = "${var.name_prefix}-aks-subnet"
+  name                 = "snet-${var.name_prefix}-aks"
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [var.aks_subnet_cidr]
 }
 
 resource "azurerm_network_security_group" "aks" {
-  name                = "${var.name_prefix}-aks-nsg"
+  name                = "nsg-${var.name_prefix}-aks"
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
