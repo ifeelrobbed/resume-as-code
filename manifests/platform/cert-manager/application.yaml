@@ -20,10 +20,21 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
+  # cainjector patches the webhook configs' caBundle out-of-band after
+  # install; that will never match the chart's own templated value, so
+  # without this it perpetually (and falsely) reports OutOfSync.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true

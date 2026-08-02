@@ -11,6 +11,15 @@ spec:
     repoURL: https://argoproj.github.io/argo-helm
     chart: argo-cd
     targetRevision: 10.2.2 # app version v3.4.6, matching bootstrap/install-argocd.sh
+    helm:
+      values: |
+        # Chart bug (10.2.2): the redis pod's secret-init container defaults
+        # to the "default" ServiceAccount, which has no RBAC and fails with
+        # "secrets is forbidden". Point it at the ServiceAccount the chart's
+        # own redisSecretInit hook already creates with the right Role.
+        redis:
+          serviceAccount:
+            name: argocd-redis-secret-init
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
