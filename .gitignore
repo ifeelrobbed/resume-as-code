@@ -10,6 +10,7 @@ override.tf.json
 
 # Go
 /app/bin/
+/app/app
 *.exe
 
 # Editors / OS
