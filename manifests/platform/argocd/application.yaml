@@ -1,0 +1,26 @@
+# Argo CD manages its own upgrades from here on - bump targetRevision in a
+# PR to upgrade instead of re-running the bootstrap script.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-cd
+    targetRevision: 10.2.2 # app version v3.4.6, matching bootstrap/install-argocd.sh
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The applicationset CRD is too large for client-side apply's
+      # last-applied-configuration annotation (262144-byte cap) - hit this
+      # for real during the imperative bootstrap too.
+      - ServerSideApply=true

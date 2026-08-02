@@ -1,0 +1,27 @@
+# The one app-of-apps entry point. Applied once by bootstrap/install-argocd.sh;
+# from then on it's self-managing, since it lives inside the directory tree
+# it watches.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ifeelrobbed/resume-as-code.git
+    targetRevision: master
+    path: manifests
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
