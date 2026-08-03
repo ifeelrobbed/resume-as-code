@@ -19,6 +19,15 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+          service:
+            annotations:
+              # Pin the Service to the static IP Terraform manages
+              # (infra/envs/prod, azurerm_public_ip.ingress) instead of
+              # letting the cloud-provider create/own an ephemeral one tied
+              # to this Service's lifecycle. DNS (robertjcameron.com) points
+              # at this address.
+              service.beta.kubernetes.io/azure-pip-name: pip-resume-site-prod-ingress
+              service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-resume-site-prod-aks-nodes
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx
