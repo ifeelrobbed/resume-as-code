@@ -28,6 +28,16 @@ spec:
               # at this address.
               service.beta.kubernetes.io/azure-pip-name: pip-resume-site-prod-ingress
               service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-resume-site-prod-aks-nodes
+            # Without this, Azure's LB health-probes hit the Service's own
+            # port (80/443 -> NodePort) expecting a 200, but that returns
+            # 404 for any unmatched host/no Ingress yet - Azure only treats
+            # 200 as healthy, so the backend gets marked down and every
+            # external request times out even though the cluster is fine
+            # internally. externalTrafficPolicy: Local makes Kubernetes
+            # expose a dedicated healthCheckNodePort (always 200) that the
+            # cloud-provider probes instead, and as a bonus preserves real
+            # client source IPs instead of SNAT'ing them.
+            externalTrafficPolicy: Local
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx

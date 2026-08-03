@@ -47,6 +47,23 @@ resource "azurerm_network_security_group" "aks" {
     destination_address_prefix = "*"
   }
 
+  # The external LB only fronts 80/443, but it delivers traffic (and health
+  # probes) to the node's NodePort, not 80/443 directly on the VM - without
+  # this, our own DenyAllOtherInbound below silently overrides Azure's
+  # default AllowAzureLoadBalancerInBound rule and every request times out.
+  # 30000-32767 is Kubernetes' default NodePort range.
+  security_rule {
+    name                       = "AllowAzureLoadBalancerNodePorts"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "30000-32767"
+    source_address_prefix      = "AzureLoadBalancer"
+    destination_address_prefix = "*"
+  }
+
   # Everything else inbound is denied by default via AKS's baseline NSG
   # rules, but this makes the intent explicit and auditable.
   security_rule {
