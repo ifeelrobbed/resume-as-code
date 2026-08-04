@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resume-site
+  namespace: resume-site
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: resume-site
+  template:
+    metadata:
+      labels:
+        app: resume-site
+    spec:
+      containers:
+        - name: resume-site
+          # Bump this tag in a PR to deploy - same as any other GitOps
+          # change (see ARCHITECTURE.md "GitOps bootstrap and upgrade
+          # path"). Pinned to an immutable sha- tag from app-ci, not
+          # :latest, so what's running is always exactly reproducible.
+          image: ghcr.io/ifeelrobbed/resume-as-code:sha-b180aca
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15

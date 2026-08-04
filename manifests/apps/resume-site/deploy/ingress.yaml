@@ -1,0 +1,28 @@
+# letsencrypt-staging for now - staging issues an untrusted cert but has no
+# rate limit, so this is the safe way to confirm the Ingress/cert-manager
+# path works end-to-end. Switch cert-manager.io/cluster-issuer to
+# letsencrypt-prod once a real cert has actually issued successfully here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: resume-site
+  namespace: resume-site
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - robertjcameron.com
+      secretName: resume-site-tls
+  rules:
+    - host: robertjcameron.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: resume-site
+                port:
+                  number: 80

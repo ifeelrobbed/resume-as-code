@@ -16,6 +16,11 @@ spec:
     path: manifests
     directory:
       recurse: true
+      # Each app's actual workload manifests (e.g. apps/resume-site/deploy/)
+      # are synced by that app's own Application, not by root directly -
+      # without this, root would apply them a second time itself (into the
+      # wrong namespace, root's own) as plain recursed resources.
+      exclude: "apps/*/deploy/**"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

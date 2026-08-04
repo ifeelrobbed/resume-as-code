@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: resume-site
+  namespace: resume-site
+spec:
+  selector:
+    app: resume-site
+  ports:
+    - port: 80
+      targetPort: 8080

@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: resume-site
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ifeelrobbed/resume-as-code.git
+    targetRevision: master
+    path: manifests/apps/resume-site/deploy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: resume-site
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
