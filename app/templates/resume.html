@@ -3,18 +3,152 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rob Cameron - Resume</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{{.Resume.Name}} - Resume</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-gray-50 text-gray-900">
-  <nav class="p-4 flex gap-4 border-b">
-    <a href="/">Home</a>
-    <a href="/resume" class="font-semibold">Resume</a>
-  </nav>
+<body>
+  <div class="page">
+    <nav class="nav">
+      <span class="nav-wordmark mono">rob<span>@</span>cameron</span>
+      <div class="nav-links mono">
+        <a href="/#about">about</a><a href="/#experience">experience</a><a href="/resume" class="current">resume</a><a href="/#contact">contact</a>
+      </div>
+    </nav>
 
-  <main class="p-6 max-w-2xl mx-auto">
-    <h1 class="text-2xl font-bold">Resume</h1>
-    <p class="mt-4 text-gray-600">Full work history goes here.</p>
-  </main>
+    <div class="resume-header">
+      <div>
+        <p class="eyebrow">resume.yaml</p>
+        <h2>The resume, rendered</h2>
+      </div>
+      <div class="view-toggle mono">
+        <button id="btn-rendered" class="active">rendered</button>
+        <button id="btn-spec">spec</button>
+      </div>
+    </div>
+
+    <div class="filter-row" id="filter-row">
+      <button class="filter-tag mono active" data-filter="all">all</button>
+      <button class="filter-tag mono" data-filter="Kubernetes">Kubernetes</button>
+      <button class="filter-tag mono" data-filter="Terraform">Terraform</button>
+      <button class="filter-tag mono" data-filter="Go">Go</button>
+      <button class="filter-tag mono" data-filter="Automation">Automation</button>
+      <button class="filter-tag mono" data-filter="Leadership">Leadership</button>
+    </div>
+
+    <div id="rendered-view" class="section">
+      <div class="rail">
+        {{range .Resume.Experience}}
+        <div class="rail-node role-card{{if .Current}} current{{end}}" data-skills="{{join .FilterTags ","}}">
+          {{if .Promotions}}
+          <button id="toggle-earlier" class="earlier-toggle">
+            <h3>{{.Title}}</h3>
+            <span class="role-date">{{monthYear .From}} &mdash; {{monthYear .To}} <span id="earlier-caret">&#9660;</span></span>
+          </button>
+          <p class="role-company">{{.Company}} &middot; {{len .SubRoles}} promotions</p>
+          <div class="role-skills">
+            {{range .Skills}}<span class="skill-badge">{{.}}</span>{{end}}
+          </div>
+          <div id="earlier-detail" class="earlier-detail" hidden>
+            {{range .SubRoles}}
+            <div>
+              <p class="sub-title mono">{{.Title}} &middot; {{monthYear .From}} &mdash; {{monthYear .To}}</p>
+              <p>{{.Blurb}}</p>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="role-title-row">
+            <h3>{{.Title}}</h3>
+            <span class="role-date">{{monthYear .From}} &mdash; {{monthYear .To}}</span>
+          </div>
+          <p class="role-company">{{.Company}}</p>
+          <ul class="role-bullets">
+            {{range .Bullets}}<li>{{.}}</li>{{end}}
+          </ul>
+          <div class="role-skills">
+            {{range .Skills}}<span class="skill-badge">{{.}}</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+
+      <div class="edu-grid">
+        {{range .Resume.Education}}
+        <div class="edu-card">
+          <p class="eyebrow" style="margin-bottom:6px;">education</p>
+          <p class="degree">{{.Degree}}</p>
+          <p>{{.School}}, {{.Year}} &middot; {{.Detail}}</p>
+        </div>
+        {{end}}
+        <div class="edu-card">
+          <p class="eyebrow" style="margin-bottom:6px;">home tech lab</p>
+          <p>{{.Resume.HomeLab}}</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="spec-view" class="section" hidden>
+      <pre class="spec-pre mono"><code>{{.SpecYAML}}</code></pre>
+    </div>
+
+    <div class="footer-note">
+      <p>status.observedGeneration == spec.generation &middot; reconciled</p>
+    </div>
+
+    <footer class="footer">
+      <span class="mono">cameronrj@gmail.com</span>
+      <div class="footer-links">
+        <a href="https://www.linkedin.com/in/robertjohncameron">linkedin</a>
+        <a href="https://github.com/ifeelrobbed">github</a>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var rendered = document.getElementById('rendered-view');
+      var spec = document.getElementById('spec-view');
+      var btnRendered = document.getElementById('btn-rendered');
+      var btnSpec = document.getElementById('btn-spec');
+      btnRendered.addEventListener('click', function () {
+        rendered.hidden = false;
+        spec.hidden = true;
+        btnRendered.classList.add('active');
+        btnSpec.classList.remove('active');
+      });
+      btnSpec.addEventListener('click', function () {
+        rendered.hidden = true;
+        spec.hidden = false;
+        btnSpec.classList.add('active');
+        btnRendered.classList.remove('active');
+      });
+
+      var tags = document.querySelectorAll('.filter-tag');
+      var cards = document.querySelectorAll('.role-card');
+      tags.forEach(function (tag) {
+        tag.addEventListener('click', function () {
+          tags.forEach(function (t) { t.classList.remove('active'); });
+          tag.classList.add('active');
+          var filter = tag.getAttribute('data-filter');
+          cards.forEach(function (card) {
+            var skills = (card.getAttribute('data-skills') || '').split(',');
+            var show = filter === 'all' || skills.indexOf(filter) !== -1;
+            card.setAttribute('data-dimmed', show ? 'false' : 'true');
+          });
+        });
+      });
+
+      var toggleEarlier = document.getElementById('toggle-earlier');
+      var earlierDetail = document.getElementById('earlier-detail');
+      var earlierCaret = document.getElementById('earlier-caret');
+      if (toggleEarlier) {
+        toggleEarlier.addEventListener('click', function () {
+          earlierDetail.hidden = !earlierDetail.hidden;
+          earlierCaret.innerHTML = earlierDetail.hidden ? '&#9660;' : '&#9650;';
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

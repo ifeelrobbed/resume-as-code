@@ -18,7 +18,7 @@ WORKDIR /app
 
 COPY --from=build /out/app ./app
 COPY templates ./templates
-# No static/ dir yet - add a COPY here once real assets (favicon, etc.) exist.
+COPY static ./static
 
 EXPOSE 8080
 ENTRYPOINT ["./app"]
