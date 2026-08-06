@@ -17,9 +17,13 @@ spec:
         - name: resume-site
           # Bump this tag in a PR to deploy - same as any other GitOps
           # change (see ARCHITECTURE.md "GitOps bootstrap and upgrade
-          # path"). Pinned to an immutable sha- tag from app-ci, not
-          # :latest, so what's running is always exactly reproducible.
-          image: ghcr.io/ifeelrobbed/resume-as-code:sha-b180aca
+          # path"). Release tags (vX.Y.Z) are retagged copies of an
+          # already-built sha- image (see app-release.yml) - readable for
+          # a human scanning `kubectl get deploy -o yaml`, but unlike a
+          # sha- tag, nothing stops the registry tag itself from being
+          # overwritten later. Use a sha- tag instead of a version tag
+          # here if that mutability ever actually matters.
+          image: ghcr.io/ifeelrobbed/resume-as-code:v1.0.0
           ports:
             - containerPort: 8080
           resources:
