@@ -1,0 +1,40 @@
+name: manifests-ci
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "manifests/**"
+      - ".github/workflows/manifests-ci.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "manifests/**"
+      - ".github/workflows/manifests-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  # Named "build" to match app-ci.yml's job: the two workflows are
+  # mutually exclusive by path filter, but branch protection only requires
+  # one "build" check - keeping the name shared lets whichever workflow
+  # actually runs for a given PR satisfy it.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: yamllint
+        run: |
+          pip install --quiet yamllint
+          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable}}" manifests
+
+      - name: kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          ./kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -ignore-missing-schemas \
+            manifests
