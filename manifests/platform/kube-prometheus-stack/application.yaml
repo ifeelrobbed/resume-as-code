@@ -1,0 +1,117 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 88.2.0 # app version v0.93.0
+    helm:
+      values: |
+        # No alert receivers configured yet - skip Alertmanager rather
+        # than run it with nowhere to route alerts. Revisit once there's
+        # somewhere for alerts to go.
+        alertmanager:
+          enabled: false
+
+        prometheusOperator:
+          admissionWebhooks:
+            # cert-manager (platform/cert-manager) is already running -
+            # let it issue the operator's webhook cert instead of the
+            # chart's default self-signed-via-Helm-hook-Job, which fights
+            # Argo CD's selfHeal on every re-sync.
+            certManager:
+              enabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+        prometheus:
+          prometheusSpec:
+            retention: 15d
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: managed-csi
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 15Gi
+            # Chart default only matches ServiceMonitors/PodMonitors/Rules
+            # carrying its own release label, in its own namespace - opens
+            # discovery cluster-wide so e.g. resume-site's ServiceMonitor
+            # (different namespace, no release label) actually gets scraped.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorNamespaceSelector: {}
+            podMonitorSelectorNilUsesHelmValues: false
+            podMonitorNamespaceSelector: {}
+            ruleSelectorNilUsesHelmValues: false
+            ruleNamespaceSelector: {}
+
+        grafana:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          # No persistence - dashboards/datasources are provisioned via the
+          # chart's ConfigMap sidecar (ships enabled by default), so Grafana
+          # stays stateless and reproducible on redeploy instead of relying
+          # on manually-created dashboards surviving a pod restart.
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+            hosts:
+              - grafana.robertjcameron.com
+            tls:
+              - hosts:
+                  - grafana.robertjcameron.com
+                secretName: grafana-tls
+
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  # cainjector patches the webhook configs' caBundle out-of-band after
+  # install, same as cert-manager's own webhooks (see
+  # platform/cert-manager/application.yaml) - without this it perpetually
+  # (and falsely) reports OutOfSync.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Prometheus/Alertmanager CRDs are large enough to exceed
+      # client-side apply's last-applied-configuration annotation cap
+      # (262144 bytes) - same issue noted in
+      # platform/argocd/application.yaml for the applicationset CRD.
+      - ServerSideApply=true
