@@ -1,0 +1,33 @@
+# Throwaway - verifies the GitHub->Azure OIDC federated credentials
+# (plan and apply identities) actually authenticate before wiring them
+# into terraform-plan.yml/terraform-apply.yml. Do not merge: close this
+# PR once both jobs report a result.
+name: oidc-smoke-test
+
+on: pull_request
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-plan-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az group show -n rg-resume-site-prod
+
+  test-apply-identity:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_APPLY }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az group show -n rg-resume-site-prod
