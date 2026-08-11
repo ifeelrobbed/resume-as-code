@@ -1,0 +1,43 @@
+name: terraform-apply
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-apply.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    # Required reviewer on this environment is the actual approval gate -
+    # it blocks the job (and therefore the OIDC token exchange) until
+    # someone approves, same as any other merge-to-master change.
+    environment: production
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_APPLY }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: infra/envs/prod
+        run: terraform init
+
+      - name: terraform validate
+        working-directory: infra/envs/prod
+        run: terraform validate
+
+      - name: terraform apply
+        working-directory: infra/envs/prod
+        run: terraform apply -input=false -auto-approve
