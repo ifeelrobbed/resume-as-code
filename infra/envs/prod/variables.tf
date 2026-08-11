@@ -25,7 +25,7 @@ variable "kubernetes_version" {
 variable "node_vm_size" {
   description = "VM size for the single node pool"
   type        = string
-  default     = "Standard_D2als_v7"
+  default     = "Standard_D2as_v7"
 }
 
 variable "tags" {

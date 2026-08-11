@@ -19,10 +19,11 @@ resource "azurerm_kubernetes_cluster" "this" {
   sku_tier            = "Free"
 
   default_node_pool {
-    name           = "system"
-    vm_size        = var.node_vm_size
-    node_count     = var.node_count
-    vnet_subnet_id = var.subnet_id
+    name                        = "system"
+    temporary_name_for_rotation = "tmpsystem"
+    vm_size                     = var.node_vm_size
+    node_count                  = var.node_count
+    vnet_subnet_id              = var.subnet_id
   }
 
   identity {
