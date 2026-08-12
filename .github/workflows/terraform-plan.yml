@@ -62,4 +62,11 @@ jobs:
       - name: terraform plan
         if: steps.changes.outputs.relevant == 'true'
         working-directory: infra/envs/prod
-        run: terraform plan -input=false
+        # -lock=false: the plan identity only has Storage Blob Data
+        # Reader on the state blob, not write - acquiring the state lock
+        # is a write (blob lease) even for a read-only plan, so it would
+        # 403 the same way init almost did. Safe to skip here: this
+        # identity can't write state regardless, and apply (the only
+        # actual write path) runs separately, serialized by merge-to-
+        # master, and still locks normally.
+        run: terraform plan -input=false -lock=false
