@@ -8,29 +8,50 @@ on:
       - ".github/workflows/manifests-ci.yml"
   pull_request:
     branches: [master]
-    paths:
-      - "manifests/**"
-      - ".github/workflows/manifests-ci.yml"
 
 permissions:
   contents: read
 
 jobs:
-  # Named "build" to match app-ci.yml's job: the two workflows are
-  # mutually exclusive by path filter, but branch protection only requires
-  # one "build" check - keeping the name shared lets whichever workflow
-  # actually runs for a given PR satisfy it.
+  # Named "build" to match app-ci.yml's job - branch protection (once
+  # re-added, see terraform_ci_oidc_design) requires one "build" check.
+  # No paths: filter on the pull_request trigger (unlike push above): a
+  # required check that's conditionally triggered needs a "didn't apply"
+  # case built separately, so instead this always runs and checks
+  # relevance itself, reporting a trivial pass when manifests/ wasn't
+  # touched. Same self-gating shape as terraform-plan.yml, no twin noop
+  # workflow to keep in sync.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: check for manifests changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              | grep -qE '^manifests/|^\.github/workflows/manifests-ci\.yml$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: no manifests changes
+        if: steps.changes.outputs.relevant == 'false'
+        run: echo "No manifests/ changes in this PR - nothing to validate."
 
       - name: yamllint
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           pip install --quiet yamllint
           yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable}}" manifests
 
       - name: kubeconform
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
           ./kubeconform -strict -summary \
