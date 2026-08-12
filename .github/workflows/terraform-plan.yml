@@ -1,0 +1,72 @@
+name: terraform-plan
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # No paths: filter on the trigger - a required check that's
+      # conditionally triggered needs a "didn't apply" case built
+      # separately (see terraform-plan-noop.yml, now removed). Detecting
+      # relevance inside the job instead means this one file always
+      # reports something, with no twin workflow to keep in sync.
+      - name: check for infra changes
+        id: changes
+        run: |
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              | grep -qE '^infra/|^\.github/workflows/terraform-plan\.yml$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: no infra changes
+        if: steps.changes.outputs.relevant == 'false'
+        run: echo "No infra/ changes in this PR - nothing to plan."
+
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.changes.outputs.relevant == 'true'
+        with:
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        if: steps.changes.outputs.relevant == 'true'
+        run: terraform fmt -check -recursive infra
+
+      - name: terraform init
+        if: steps.changes.outputs.relevant == 'true'
+        working-directory: infra/envs/prod
+        run: terraform init
+
+      - name: terraform validate
+        if: steps.changes.outputs.relevant == 'true'
+        working-directory: infra/envs/prod
+        run: terraform validate
+
+      - name: terraform plan
+        if: steps.changes.outputs.relevant == 'true'
+        working-directory: infra/envs/prod
+        # -lock=false: the plan identity only has Storage Blob Data
+        # Reader on the state blob, not write - acquiring the state lock
+        # is a write (blob lease) even for a read-only plan, so it would
+        # 403 the same way init almost did. Safe to skip here: this
+        # identity can't write state regardless, and apply (the only
+        # actual write path) runs separately, serialized by merge-to-
+        # master, and still locks normally.
+        run: terraform plan -input=false -lock=false

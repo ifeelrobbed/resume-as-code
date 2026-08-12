@@ -14,5 +14,8 @@ terraform {
     storage_account_name = "resumesitetfstate" # must be globally unique - rename before first use
     container_name       = "tfstate"
     key                  = "prod.tfstate"
+    # AAD RBAC instead of the storage account key - the CI plan identity
+    # only has Reader on this RG, which doesn't include listKeys.
+    use_azuread_auth = true
   }
 }

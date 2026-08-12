@@ -8,9 +8,6 @@ on:
       - ".github/workflows/app-ci.yml"
   pull_request:
     branches: [master]
-    paths:
-      - "app/**"
-      - ".github/workflows/app-ci.yml"
 
 permissions:
   contents: read
@@ -20,17 +17,41 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
+  # No paths: filter on the pull_request trigger (unlike push above) -
+  # same self-gating shape as manifests-ci.yml/terraform-plan.yml: always
+  # run, check relevance internally, report a trivial pass when app/
+  # wasn't touched, instead of needing a separate noop workflow.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: check for app changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              | grep -qE '^app/|^\.github/workflows/app-ci\.yml$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: no app changes
+        if: steps.changes.outputs.relevant == 'false'
+        run: echo "No app/ changes in this PR - nothing to build."
 
       - uses: actions/setup-go@v7
+        if: steps.changes.outputs.relevant == 'true'
         with:
           go-version-file: app/go.mod
           cache-dependency-path: app/go.sum
 
       - name: vet, build, test
+        if: steps.changes.outputs.relevant == 'true'
         working-directory: app
         run: |
           go vet ./...
@@ -38,21 +59,24 @@ jobs:
           go test ./...
 
       - id: buildtime
+        if: steps.changes.outputs.relevant == 'true'
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4
+        if: steps.changes.outputs.relevant == 'true'
 
       # Only push on an actual merge to master - PRs build/test to catch
       # breaks before merge, same review-then-merge shape as the terraform
       # workflows, but never publish an image for unreviewed code.
       - uses: docker/login-action@v4
-        if: github.event_name != 'pull_request'
+        if: steps.changes.outputs.relevant == 'true' && github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: meta
+        if: steps.changes.outputs.relevant == 'true'
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
@@ -61,6 +85,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v7
+        if: steps.changes.outputs.relevant == 'true'
         with:
           context: app
           push: ${{ github.event_name != 'pull_request' }}
