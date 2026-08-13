@@ -5,11 +5,8 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 )
-
-var visitorCount int64
 
 // yearOnly and monthYear reformat an Experience/SubRole "YYYY-MM" date for
 // display; "present" passes through unchanged. Two formats because the
@@ -41,19 +38,28 @@ var templateFuncs = template.FuncMap{
 
 var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html"))
 
-// Stats is the live data every page can show - visitor count, process
-// uptime, and build time (see main.go's buildTime, injected via -ldflags).
+// Stats is the live data every page can show - visitor count (and when it
+// was last confirmed via Prometheus, as a bare unix timestamp so the
+// template can render it in the visitor's own timezone), process uptime,
+// and build time (see main.go's buildTime, injected via -ldflags).
 type Stats struct {
-	VisitorCount int64
-	Uptime       string
-	LastDeploy   string
+	VisitorCount            int64
+	VisitorCountUpdatedUnix int64
+	Uptime                  string
+	LastDeploy              string
 }
 
 func stats() Stats {
+	count, updatedAt := visitorCount.get()
+	var updatedUnix int64
+	if !updatedAt.IsZero() {
+		updatedUnix = updatedAt.Unix()
+	}
 	return Stats{
-		VisitorCount: atomic.LoadInt64(&visitorCount),
-		Uptime:       time.Since(startTime).Round(time.Second).String(),
-		LastDeploy:   buildTime,
+		VisitorCount:            count,
+		VisitorCountUpdatedUnix: updatedUnix,
+		Uptime:                  time.Since(startTime).Round(time.Second).String(),
+		LastDeploy:              buildTime,
 	}
 }
 
@@ -76,7 +82,6 @@ type ResumeData struct {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	atomic.AddInt64(&visitorCount, 1)
 	data := IndexData{
 		Stats:  stats(),
 		Resume: resume,

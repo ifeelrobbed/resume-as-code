@@ -117,6 +117,7 @@ h1, h2, h3 {
 .stat { background: var(--panel-raised); padding: 16px; }
 .stat-label { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 0 0 6px; }
 .stat-value { font-family: var(--mono); font-size: 22px; font-weight: 600; margin: 0; }
+.stat-meta { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 4px 0 0; }
 .stat-sync { font-family: var(--mono); font-size: 14px; font-weight: 600; margin: 6px 0 0; color: var(--sage); display: flex; align-items: center; gap: 8px; }
 .sparkline { margin-top: 6px; }
 .sparkline polyline { fill: none; stroke: var(--amber); stroke-width: 1.5; }

@@ -44,6 +44,7 @@
         <div class="stat">
           <p class="stat-label">visitors</p>
           <p class="stat-value">{{.Stats.VisitorCount}}</p>
+          <p class="stat-meta" data-updated-unix="{{.Stats.VisitorCountUpdatedUnix}}">as of &mdash;</p>
           <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
             <polyline points="0,20 15,18 30,15 45,16 60,9 75,7 90,3" />
           </svg>
@@ -95,5 +96,19 @@
       </div>
     </footer>
   </div>
+
+  <script>
+    (function () {
+      // Server sends the poll time as a bare unix timestamp (no timezone
+      // opinion) - format it in the visitor's own locale/timezone here
+      // rather than picking one server-side that won't match most visitors.
+      var el = document.querySelector('.stat-meta[data-updated-unix]');
+      var unix = parseInt(el.getAttribute('data-updated-unix'), 10);
+      if (unix) {
+        var time = new Date(unix * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        el.textContent = 'as of ' + time;
+      }
+    })();
+  </script>
 </body>
 </html>
