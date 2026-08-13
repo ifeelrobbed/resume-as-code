@@ -16,9 +16,9 @@ var startTime = time.Now()
 
 func main() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", indexHandler)
-	mux.HandleFunc("GET /resume", resumeHandler)
-	mux.HandleFunc("GET /status", statusHandler)
+	mux.HandleFunc("GET /{$}", instrument("index", indexHandler))
+	mux.HandleFunc("GET /resume", instrument("resume", resumeHandler))
+	mux.HandleFunc("GET /status", instrument("status", statusHandler))
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
