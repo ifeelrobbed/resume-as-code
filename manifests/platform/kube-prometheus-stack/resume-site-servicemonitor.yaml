@@ -1,0 +1,20 @@
+# Lives here rather than apps/resume-site/deploy - that path is excluded
+# from root's sync (manifests/root.yaml) since it's synced by resume-site's
+# own Application instead, into the resume-site namespace, matching its
+# Service's own namespace so the default (same-namespace) namespaceSelector
+# just works.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: resume-site
+  namespace: resume-site
+  labels:
+    app: resume-site
+spec:
+  selector:
+    matchLabels:
+      app: resume-site
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
