@@ -22,6 +22,8 @@ func main() {
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
+	go pollVisitorCount()
+
 	addr := ":8080"
 	log.Printf("listening on %s (build %s)", addr, buildTime)
 	log.Fatal(http.ListenAndServe(addr, mux))
