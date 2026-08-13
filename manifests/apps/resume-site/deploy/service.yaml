@@ -3,9 +3,15 @@ kind: Service
 metadata:
   name: resume-site
   namespace: resume-site
+  # ServiceMonitor (manifests/platform/kube-prometheus-stack) selects on
+  # this label to find the Service - separate from spec.selector below,
+  # which is how the Service finds its pods.
+  labels:
+    app: resume-site
 spec:
   selector:
     app: resume-site
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 8080
