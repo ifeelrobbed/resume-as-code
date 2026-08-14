@@ -55,7 +55,7 @@ type Resume struct {
 var resume = Resume{
 	Name:  "Rob Cameron",
 	Title: "Senior Site Reliability Engineer",
-	Bio:   "Twenty years in IT, the last several spent moving from keeping systems running to designing the platforms that keep themselves running. This site is both the resume and a live instance of that work - the stats above are read from the cluster it's deployed on.",
+	Bio:   "Twenty years in IT, the last several spent moving from keeping systems running to designing the platforms that keep themselves running. This site is both the resume and a live instance of that work - the stats below are read from the cluster it's deployed on.",
 	Stack: []string{
 		"Kubernetes", "Terraform", "Crossplane", "Argo CD", "Go", "Azure",
 		"Prometheus / Grafana", "GitHub Actions",
