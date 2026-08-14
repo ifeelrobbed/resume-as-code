@@ -11,7 +11,14 @@ import (
 	"time"
 )
 
-const visitorCountQuery = `sum(resume_http_requests_total{handler="index"})`
+// increase(), not a raw sum() of the counter, because
+// resume_http_requests_total lives in the app's own process memory and
+// resets to 0 on every pod restart/redeploy - increase() detects each
+// reset and adds the pre-reset total back in. The [15d] window matches
+// Prometheus's configured retention (kube-prometheus-stack/application.yaml)
+// - it's a rolling 15-day count, not all-time, since anything Prometheus
+// itself has already rolled off can't be recovered.
+const visitorCountQuery = `sum(increase(resume_http_requests_total{handler="index"}[15d]))`
 
 const pollInterval = 30 * time.Second
 
