@@ -3,10 +3,18 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// blackboxExporterUserAgent identifies requests from the site's own
+// uptime probe (manifests/platform/prometheus-blackbox-exporter) - a
+// prefix match, not an exact one, so a future chart version bump (which
+// changes the trailing version number) doesn't silently start counting
+// probe traffic as real requests again.
+const blackboxExporterUserAgent = "Blackbox-Exporter/"
 
 var httpRequestsTotal = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
@@ -60,11 +68,19 @@ func (w *statusWriter) WriteHeader(code int) {
 // instrument wraps a handler to count requests (by handler name and
 // response status code) and time them (by handler name), published under
 // resume_http_requests_total and resume_http_request_duration_seconds.
+// Skips recording entirely for the blackbox exporter's own probe traffic -
+// it's a synthetic, once-a-minute, in-cluster-to-LB-and-back request, not a
+// real visitor, and letting it into these metrics would both inflate the
+// visitor count and skew the latency histogram optimistic. The exporter's
+// own probe_* metrics already track its activity properly.
 func instrument(name string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		h(sw, r)
+		if strings.HasPrefix(r.UserAgent(), blackboxExporterUserAgent) {
+			return
+		}
 		httpRequestsTotal.WithLabelValues(name, strconv.Itoa(sw.status)).Inc()
 		httpRequestDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
 	}
