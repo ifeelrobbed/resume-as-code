@@ -1,6 +1,6 @@
 # The one app-of-apps entry point. Applied once by bootstrap/install-argocd.sh;
 # from then on it's self-managing, since it lives inside the directory tree
-# it watches.
+# it watches (both directories below, not just manifests/).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,17 +10,26 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  source:
-    repoURL: https://github.com/ifeelrobbed/resume-as-code.git
-    targetRevision: master
-    path: manifests
-    directory:
-      recurse: true
-      # Each app's actual workload manifests (e.g. apps/resume-site/deploy/)
-      # are synced by that app's own Application, not by root directly -
-      # without this, root would apply them a second time itself (into the
-      # wrong namespace, root's own) as plain recursed resources.
-      exclude: "apps/*/deploy/**"
+  # Multi-source (spec.sources, not spec.source) so root also watches
+  # promql/ (see ARCHITECTURE.md's repo layout) - recording/alerting rules
+  # as code, kept out of manifests/ since they're not infra/platform
+  # config in the same sense everything else under manifests/ is.
+  sources:
+    - repoURL: https://github.com/ifeelrobbed/resume-as-code.git
+      targetRevision: master
+      path: manifests
+      directory:
+        recurse: true
+        # Each app's actual workload manifests (e.g. apps/resume-site/deploy/)
+        # are synced by that app's own Application, not by root directly -
+        # without this, root would apply them a second time itself (into the
+        # wrong namespace, root's own) as plain recursed resources.
+        exclude: "apps/*/deploy/**"
+    - repoURL: https://github.com/ifeelrobbed/resume-as-code.git
+      targetRevision: master
+      path: promql
+      directory:
+        recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
