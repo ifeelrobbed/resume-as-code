@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "manifests/**"
+      - "promql/**"
       - ".github/workflows/manifests-ci.yml"
   pull_request:
     branches: [master]
@@ -18,9 +19,9 @@ jobs:
   # No paths: filter on the pull_request trigger (unlike push above): a
   # required check that's conditionally triggered needs a "didn't apply"
   # case built separately, so instead this always runs and checks
-  # relevance itself, reporting a trivial pass when manifests/ wasn't
-  # touched. Same self-gating shape as terraform-plan.yml, no twin noop
-  # workflow to keep in sync.
+  # relevance itself, reporting a trivial pass when neither manifests/ nor
+  # promql/ was touched. Same self-gating shape as terraform-plan.yml, no
+  # twin noop workflow to keep in sync.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -28,27 +29,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: check for manifests changes
+      - name: check for manifests/promql changes
         id: changes
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
-              | grep -qE '^manifests/|^\.github/workflows/manifests-ci\.yml$'; then
+              | grep -qE '^manifests/|^promql/|^\.github/workflows/manifests-ci\.yml$'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: no manifests changes
+      - name: no manifests/promql changes
         if: steps.changes.outputs.relevant == 'false'
-        run: echo "No manifests/ changes in this PR - nothing to validate."
+        run: echo "No manifests/ or promql/ changes in this PR - nothing to validate."
 
       - name: yamllint
         if: steps.changes.outputs.relevant == 'true'
         run: |
           pip install --quiet yamllint
-          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable}}" manifests
+          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable}}" manifests promql
 
       - name: kubeconform
         if: steps.changes.outputs.relevant == 'true'
@@ -58,4 +59,4 @@ jobs:
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -ignore-missing-schemas \
-            manifests
+            manifests promql

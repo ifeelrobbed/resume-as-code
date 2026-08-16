@@ -1,0 +1,28 @@
+# Recording/alerting rules as code (see ARCHITECTURE.md's repo layout and
+# Phase 2 roadmap) - synced by root's second source (manifests/root.yaml),
+# separately from manifests/. namespace: resume-site is just for
+# organization/RBAC scoping: ruleNamespaceSelector: {} (see
+# manifests/platform/kube-prometheus-stack/application.yaml) already
+# matches PrometheusRules in every namespace, so unlike a ServiceMonitor's
+# namespaceSelector there's no functional reason it has to live here.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: resume-site-slo
+  namespace: resume-site
+spec:
+  groups:
+    - name: resume-site.slo
+      rules:
+        - record: resume_site:http_requests:rate5m
+          expr: sum(rate(resume_http_requests_total[5m]))
+        - record: resume_site:http_requests:error_rate5m
+          expr: sum(rate(resume_http_requests_total{code=~"5.."}[5m]))
+        # Divides two recorded series rather than the raw counters
+        # directly, so Grafana/alerting only ever deals with one already-
+        # aggregated ratio. NaN (0/0) when there's been no traffic in the
+        # window at all - expected on a low-traffic personal site, not
+        # worth guarding against with a clamp that would hide genuine
+        # "no data" from "confirmed zero errors".
+        - record: resume_site:http_requests:error_ratio5m
+          expr: resume_site:http_requests:error_rate5m / resume_site:http_requests:rate5m
