@@ -19,6 +19,7 @@ func main() {
 	mux.HandleFunc("GET /{$}", instrument("index", indexHandler))
 	mux.HandleFunc("GET /resume", instrument("resume", resumeHandler))
 	mux.HandleFunc("GET /status", instrument("status", statusHandler))
+	mux.HandleFunc("POST /engagement/click", instrument("engagement-click", engagementClickHandler))
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 

@@ -29,8 +29,19 @@ var httpRequestDuration = prometheus.NewHistogramVec(
 	[]string{"handler"},
 )
 
+// Labeled by target (see engagement.go's allowlist) - never fed directly
+// from request input, since an unbounded/attacker-controlled label value
+// would create unbounded time series.
+var engagementClicksTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "resume_engagement_clicks_total",
+		Help: "Outbound engagement link clicks, labeled by target",
+	},
+	[]string{"target"},
+)
+
 func init() {
-	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration)
+	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, engagementClicksTotal)
 }
 
 // statusWriter captures the status code a handler writes so it can be
