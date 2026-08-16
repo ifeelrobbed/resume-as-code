@@ -45,14 +45,21 @@ spec:
                   resources:
                     requests:
                       storage: 15Gi
-            # Chart default only matches ServiceMonitors/PodMonitors/Rules
-            # carrying its own release label, in its own namespace - opens
-            # discovery cluster-wide so e.g. resume-site's ServiceMonitor
-            # (different namespace, no release label) actually gets scraped.
+            # Chart default only matches ServiceMonitors/PodMonitors/Probes/
+            # Rules carrying its own release label, in its own namespace -
+            # opens discovery cluster-wide so e.g. resume-site's
+            # ServiceMonitor (different namespace, no release label)
+            # actually gets scraped. Got bitten by this once already
+            # (resume-site's own ServiceMonitor sat unscraped for days
+            # despite this comment already existing) - probeSelector is
+            # included pre-emptively here for prometheus-blackbox-exporter's
+            # Probe, rather than waiting to discover it's missing again.
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorNamespaceSelector: {}
             podMonitorSelectorNilUsesHelmValues: false
             podMonitorNamespaceSelector: {}
+            probeSelectorNilUsesHelmValues: false
+            probeNamespaceSelector: {}
             ruleSelectorNilUsesHelmValues: false
             ruleNamespaceSelector: {}
 

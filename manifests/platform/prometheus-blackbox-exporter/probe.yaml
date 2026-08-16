@@ -1,0 +1,23 @@
+# Probes robertjcameron.com from inside the cluster via the real public
+# path (DNS -> ingress-nginx's LoadBalancer -> Service -> pod) - not a full
+# substitute for probing from outside the cluster's own network, but a real
+# step up from every other metric in this repo, which only reflects the
+# cluster's view of itself. http_2xx also reports probe_ssl_earliest_cert_
+# expiry for free since the target is https, covering cert-manager expiry
+# visibility as a side effect.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: resume-site-external
+  namespace: monitoring
+spec:
+  module: http_2xx
+  prober:
+    url: prometheus-blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://robertjcameron.com
+      labels:
+        target: resume-site
+  interval: 1m
