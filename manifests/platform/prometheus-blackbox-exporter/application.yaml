@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-blackbox-exporter
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-blackbox-exporter
+    targetRevision: 11.17.2 # app version v0.28.0
+    helm:
+      values: |
+        # Default config already ships an http_2xx module - no override
+        # needed for the resume-site probe (see probe.yaml).
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
