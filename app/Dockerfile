@@ -9,8 +9,9 @@ RUN go mod download
 COPY . .
 
 ARG BUILD_TIME=unknown
+ARG GIT_REVISION=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
-    -ldflags "-s -w -X main.buildTime=${BUILD_TIME}" \
+    -ldflags "-s -w -X main.buildTime=${BUILD_TIME} -X main.gitRevision=${GIT_REVISION}" \
     -o /out/app .
 
 FROM gcr.io/distroless/static-debian12:nonroot

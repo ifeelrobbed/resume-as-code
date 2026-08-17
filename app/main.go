@@ -8,9 +8,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Overridden at build time via -ldflags "-X main.buildTime=...";
-// left as "dev" for local `go run`.
+// Overridden at build time via -ldflags "-X main.buildTime=..." and
+// "-X main.gitRevision=..."; left as "dev" for local `go run`.
 var buildTime = "dev"
+var gitRevision = "dev"
 
 var startTime = time.Now()
 
