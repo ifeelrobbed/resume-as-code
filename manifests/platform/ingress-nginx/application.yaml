@@ -38,6 +38,13 @@ spec:
             # cloud-provider probes instead, and as a bonus preserves real
             # client source IPs instead of SNAT'ing them.
             externalTrafficPolicy: Local
+          # Unlike cert-manager, this chart doesn't expose metrics at all by
+          # default - no port, no Service, nothing for a ServiceMonitor to
+          # even point at until both of these are on.
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx
