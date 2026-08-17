@@ -11,11 +11,33 @@ spec:
     targetRevision: 88.2.0 # app version v0.93.0
     helm:
       values: |
-        # No alert receivers configured yet - skip Alertmanager rather
-        # than run it with nowhere to route alerts. Revisit once there's
-        # somewhere for alerts to go.
+        # Routes to a Discord webhook. The webhook URL itself is NOT here -
+        # it's a one-off `kubectl create secret` (alertmanager-discord-
+        # webhook, monitoring namespace), not committed to git, since this
+        # repo has no secrets management (Key Vault/CSI driver) yet - see
+        # ARCHITECTURE.md's Secrets section. Referenced here only via
+        # webhook_url_file, pointing at where alertmanagerSpec.secrets
+        # mounts that Secret. Migrate to Key Vault/CSI once that exists.
         alertmanager:
-          enabled: false
+          enabled: true
+          alertmanagerSpec:
+            secrets:
+              - alertmanager-discord-webhook
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+          config:
+            route:
+              receiver: discord
+              group_by: ["alertname"]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+            receivers:
+              - name: discord
+                discord_configs:
+                  - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord-webhook/webhook-url
 
         prometheusOperator:
           admissionWebhooks:
