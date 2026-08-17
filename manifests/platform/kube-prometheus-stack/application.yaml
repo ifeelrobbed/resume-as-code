@@ -34,7 +34,20 @@ spec:
               group_wait: 30s
               group_interval: 5m
               repeat_interval: 4h
+            # "null" isn't optional here even though nothing routes to it
+            # directly: the chart deep-merges its own base route.routes
+            # (not shown here - it's hardcoded in the chart's templates)
+            # into whatever route we set, and that base config always
+            # includes a Watchdog-alert -> "null" sub-route to silence the
+            # chart's built-in dead-man's-switch alert. Helm replaces lists
+            # wholesale rather than merging them, so specifying receivers
+            # here drops the chart's own "null" receiver definition while
+            # that Watchdog sub-route still references it by name - without
+            # this entry the operator rejects the whole config as invalid
+            # ("undefined receiver \"null\" used in route") and no
+            # Alertmanager StatefulSet gets created at all.
             receivers:
+              - name: "null"
               - name: discord
                 discord_configs:
                   - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord-webhook/webhook-url
