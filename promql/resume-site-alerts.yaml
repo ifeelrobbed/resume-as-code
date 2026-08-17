@@ -1,0 +1,70 @@
+# Alerting rules as code (see resume-site-rules.yaml's comment on why this
+# lives in promql/, not manifests/). Everything here was already being
+# collected before this file existed - alerting is just finally giving it
+# somewhere to go (see kube-prometheus-stack/application.yaml's Discord
+# receiver).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: resume-site-alerts
+  namespace: resume-site
+spec:
+  groups:
+    - name: resume-site.alerts
+      rules:
+        # Two consecutive failed probes (1m interval - see
+        # prometheus-blackbox-exporter/probe.yaml), not one, so a single
+        # transient blip doesn't page.
+        - alert: ResumeSiteDown
+          expr: probe_success{target="resume-site"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "robertjcameron.com is unreachable from outside the cluster"
+            description: "blackbox_exporter's probe of https://robertjcameron.com has failed for 2+ minutes."
+
+        - alert: ResumeSiteCertExpiringSoon
+          expr: probe_ssl_earliest_cert_expiry{target="resume-site"} - time() < 14 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "robertjcameron.com's TLS cert expires in under 14 days"
+            description: "cert-manager's letsencrypt-prod renewal should handle this automatically - alerting in case it doesn't."
+
+        # error_ratio5m has no data at all during error-free periods (see
+        # resume-site-rules.yaml's comment) - so this simply never
+        # evaluates true, not "evaluates to 0", when things are healthy.
+        - alert: ResumeSiteElevatedErrorRate
+          expr: resume_site:http_requests:error_ratio5m > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "resume-site 5xx rate above 5% for 10+ minutes"
+            description: "resume_site:http_requests:error_ratio5m is {{ $value | humanizePercentage }}."
+
+        # Covers ingress-nginx and all three cert-manager components in one
+        # rule via the job label - each becomes its own alert instance.
+        - alert: PlatformComponentDown
+          expr: up{job=~"cert-manager|cainjector|webhook|ingress-nginx-controller-metrics"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} has been unscrapeable for 5+ minutes"
+            description: "Prometheus can't reach {{ $labels.job }} - either the pod is down or its ServiceMonitor/metrics endpoint broke."
+
+        # Distinct from ResumeSiteDown: this fires if Prometheus can't
+        # scrape the app pod's own /metrics, which is a different failure
+        # mode than the external probe failing (e.g. a broken
+        # ServiceMonitor vs. the site actually being down).
+        - alert: ResumeSiteMetricsUnreachable
+          expr: up{job="resume-site"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus can't scrape resume-site's own /metrics"
+            description: "up{job=\"resume-site\"} has been 0 for 5+ minutes - check the pod and its ServiceMonitor."
