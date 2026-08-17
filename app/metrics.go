@@ -48,8 +48,23 @@ var engagementClicksTotal = prometheus.NewCounterVec(
 	[]string{"target"},
 )
 
+// Always 1 - the labels are the actual payload. Lets Grafana annotate
+// dashboards at deploy boundaries (a spike right after a revision change
+// is visually obvious) instead of having to cross-reference the site's own
+// "last deploy" stat or kubectl by hand. gitRevision/buildTime are package
+// vars set via -ldflags -X before any init() runs, so they're already
+// correct by the time this file's init() reads them below.
+var buildInfo = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "resume_build_info",
+		Help: "Always 1; labels carry the running build's git revision and build time",
+	},
+	[]string{"revision", "build_time"},
+)
+
 func init() {
-	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, engagementClicksTotal)
+	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, engagementClicksTotal, buildInfo)
+	buildInfo.WithLabelValues(gitRevision, buildTime).Set(1)
 }
 
 // statusWriter captures the status code a handler writes so it can be
