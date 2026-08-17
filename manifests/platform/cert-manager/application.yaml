@@ -17,6 +17,12 @@ spec:
           requests:
             cpu: 50m
             memory: 64Mi
+        # Metrics (prometheus.enabled) are already served by default.
+        # Flipping prometheus.servicemonitor.enabled to true to create
+        # a ServiceMonitor resource for Prometheus Operator to scrape metrics.
+        prometheus:
+          servicemonitor:
+            enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
