@@ -11,46 +11,64 @@ spec:
     targetRevision: 88.2.0 # app version v0.93.0
     helm:
       values: |
-        # Routes to a Discord webhook. The webhook URL itself is NOT here -
+        # Routes to a Discord webhook. The credential itself is NOT here -
         # it's a one-off `kubectl create secret` (alertmanager-discord-
         # webhook, monitoring namespace), not committed to git, since this
         # repo has no secrets management (Key Vault/CSI driver) yet - see
-        # ARCHITECTURE.md's Secrets section. Referenced here only via
-        # webhook_url_file, pointing at where alertmanagerSpec.secrets
-        # mounts that Secret. Migrate to Key Vault/CSI once that exists.
+        # ARCHITECTURE.md's Secrets section. Migrate to Key Vault/CSI once
+        # that exists.
+        #
+        # Routing/receivers live in a native AlertmanagerConfig object
+        # (kube-prometheus-stack/alertmanager-config.yaml), not the raw
+        # `config:` value some guides use - discord_config's webhook_url_file
+        # isn't recognized by this operator version's config parser
+        # ("field webhook_url_file not found in type alertmanager.
+        # discordConfig", confirmed against the live cluster), even though
+        # the underlying Alertmanager binary itself supports it.
+        # AlertmanagerConfig's discordConfigs[].apiURL is a proper
+        # SecretKeySelector - references the Secret by name/key directly,
+        # no file-mount indirection, and isn't subject to that gap.
         alertmanager:
           enabled: true
           alertmanagerSpec:
             secrets:
               - alertmanager-discord-webhook
+            # Makes alertmanager-config.yaml (same namespace as this
+            # Alertmanager object) THE config, rather than one of several
+            # merged tenant configs - deliberately, since the latter path
+            # auto-injects a `namespace: monitoring` matcher on the first-
+            # level route, which would silently stop it from ever matching
+            # alerts from resume-site's own PrometheusRule (a different
+            # namespace). alertmanagerConfigMatcherStrategy: None makes
+            # that explicit rather than relying on this one mechanism's
+            # documented-but-easy-to-miss side effect.
+            alertmanagerConfiguration:
+              name: resume-site-discord
+            alertmanagerConfigMatcherStrategy:
+              type: None
             resources:
               requests:
                 cpu: 50m
                 memory: 64Mi
-          config:
-            route:
-              receiver: discord
-              group_by: ["alertname"]
-              group_wait: 30s
-              group_interval: 5m
-              repeat_interval: 4h
-            # "null" isn't optional here even though nothing routes to it
-            # directly: the chart deep-merges its own base route.routes
-            # (not shown here - it's hardcoded in the chart's templates)
-            # into whatever route we set, and that base config always
-            # includes a Watchdog-alert -> "null" sub-route to silence the
-            # chart's built-in dead-man's-switch alert. Helm replaces lists
-            # wholesale rather than merging them, so specifying receivers
-            # here drops the chart's own "null" receiver definition while
-            # that Watchdog sub-route still references it by name - without
-            # this entry the operator rejects the whole config as invalid
-            # ("undefined receiver \"null\" used in route") and no
-            # Alertmanager StatefulSet gets created at all.
-            receivers:
-              - name: "null"
-              - name: discord
-                discord_configs:
-                  - webhook_url_file: /etc/alertmanager/secrets/alertmanager-discord-webhook/webhook-url
+
+        # AKS's control plane is fully Azure-managed - these components
+        # aren't reachable the way the chart's defaults (built for
+        # self-hosted/kubeadm clusters) assume, so their ServiceMonitors
+        # never find a target and the chart's own KubeControllerManagerDown/
+        # KubeSchedulerDown/KubeProxyDown/etcd alerts fire permanently as
+        # false positives. Was already true since this chart was first
+        # installed - only surfaced now that Alertmanager actually has
+        # somewhere to send notifications. kubeApiServer stays on: unlike
+        # these, the API server genuinely is reachable and already
+        # confirmed scraping successfully (job "apiserver").
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        kubeEtcd:
+          enabled: false
 
         prometheusOperator:
           admissionWebhooks:
