@@ -1,0 +1,36 @@
+# Referenced by name from kube-prometheus-stack/application.yaml's
+# alertmanager.alertmanagerSpec.alertmanagerConfiguration - must live in the
+# same namespace as the Alertmanager object itself (monitoring), which is
+# also what makes the operator skip the namespace-matcher injection it'd
+# otherwise apply to a first-level route (see the comment in that file).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: resume-site-discord
+  namespace: monitoring
+spec:
+  route:
+    receiver: discord
+    groupBy: ["alertname"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    # The chart's own default Watchdog -> "null" silencing (a permanent
+    # dead-man's-switch alert, meant for an external consumer we don't
+    # have) only applied via the raw `config:` value's hardcoded defaults -
+    # bypassed entirely now that alertmanagerConfiguration replaces that
+    # whole mechanism, so it has to be redone explicitly here or Watchdog
+    # would fire into Discord every repeat_interval, forever.
+    routes:
+      - receiver: "null"
+        matchers:
+          - name: alertname
+            value: Watchdog
+            matchType: "="
+  receivers:
+    - name: "null"
+    - name: discord
+      discordConfigs:
+        - apiURL:
+            name: alertmanager-discord-webhook
+            key: webhook-url
