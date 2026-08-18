@@ -48,6 +48,21 @@ var engagementClicksTotal = prometheus.NewCounterVec(
 	[]string{"target"},
 )
 
+// Saturation - "how much concurrent work is the process doing right now" -
+// not covered by the RED trio above, and not something the default go_*/
+// process_* collectors give you in a directly business-meaningful way
+// (goroutine count is a proxy, not the real thing). Deliberately NOT
+// excluded for the blackbox exporter's traffic the way httpRequestsTotal/
+// httpRequestDuration are: this is a resource-utilization signal, not an
+// attribution signal, so a synthetic request genuinely does occupy a
+// connection/goroutine the same as any other while it's in flight.
+var httpRequestsInFlight = prometheus.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "resume_http_requests_in_flight",
+		Help: "Number of HTTP requests currently being served",
+	},
+)
+
 // Always 1 - the labels are the actual payload. Lets Grafana annotate
 // dashboards at deploy boundaries (a spike right after a revision change
 // is visually obvious) instead of having to cross-reference the site's own
@@ -63,7 +78,7 @@ var buildInfo = prometheus.NewGaugeVec(
 )
 
 func init() {
-	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, engagementClicksTotal, buildInfo)
+	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, engagementClicksTotal, httpRequestsInFlight, buildInfo)
 	buildInfo.WithLabelValues(gitRevision, buildTime).Set(1)
 }
 
@@ -80,16 +95,21 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// instrument wraps a handler to count requests (by handler name and
-// response status code) and time them (by handler name), published under
-// resume_http_requests_total and resume_http_request_duration_seconds.
-// Skips recording entirely for the blackbox exporter's own probe traffic -
-// it's a synthetic, once-a-minute, in-cluster-to-LB-and-back request, not a
-// real visitor, and letting it into these metrics would both inflate the
-// visitor count and skew the latency histogram optimistic. The exporter's
-// own probe_* metrics already track its activity properly.
+// instrument wraps a handler to track in-flight concurrency (all traffic),
+// count requests (by handler name and response status code), and time them
+// (by handler name), published under resume_http_requests_in_flight,
+// resume_http_requests_total, and resume_http_request_duration_seconds.
+// Skips the count/duration recording entirely for the blackbox exporter's
+// own probe traffic - it's a synthetic, once-a-minute, in-cluster-to-LB-
+// and-back request, not a real visitor, and letting it into these metrics
+// would both inflate the visitor count and skew the latency histogram
+// optimistic. The exporter's own probe_* metrics already track its
+// activity properly. In-flight is tracked regardless (see its own comment).
 func instrument(name string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		httpRequestsInFlight.Inc()
+		defer httpRequestsInFlight.Dec()
+
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		h(sw, r)
