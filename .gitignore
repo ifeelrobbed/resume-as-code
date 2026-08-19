@@ -13,6 +13,9 @@ override.tf.json
 /app/app
 *.exe
 
+# Local tooling (Makefile-downloaded, e.g. kubeconform)
+/.bin/
+
 # Editors / OS
 .DS_Store
 .vscode/
