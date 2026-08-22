@@ -85,6 +85,13 @@
             <polyline points="{{.Stats.P95LatencySparkline}}" />
           </svg>
         </div>
+        <div class="stat">
+          <p class="stat-label">error rate &middot; 24h</p>
+          <p class="stat-value">{{.Stats.ErrorRateCurrent}}</p>
+          <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
+            <polyline points="{{.Stats.ErrorRateSparkline}}" />
+          </svg>
+        </div>
       </div>
     </section>
 

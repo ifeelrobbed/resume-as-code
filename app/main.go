@@ -43,6 +43,7 @@ func main() {
 	go pollVisitorCount()
 	go pollSparkline("request rate", requestRateQuery, &requestRate)
 	go pollSparkline("p95 latency", p95LatencyQuery, &p95Latency)
+	go pollSparkline("error rate", errorRateQuery, &errorRate)
 
 	addr := ":8080"
 	log.Printf("listening on %s (build %s)", addr, buildTime)

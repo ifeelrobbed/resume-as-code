@@ -37,6 +37,14 @@ const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[5
 // without needing a separate exclusion.
 const p95LatencyQuery = `histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler="index"}[5m])) by (le))`
 
+// References the recording rule by name rather than re-deriving it here,
+// unlike requestRateQuery/p95LatencyQuery - promql/resume-site-rules.yaml's
+// error_ratio5m is already correctly scoped to handler="index" (was fixed
+// there specifically because the unscoped version was silently
+// desensitizing the ResumeSiteElevatedErrorRate alert), so there's nothing
+// to fix or duplicate on the app side this time.
+const errorRateQuery = `resume_site:http_requests:error_ratio5m`
+
 // Shared by both sparkline metrics above - a 24h window barely moves
 // minute to minute, so there's nothing to gain from polling as often as
 // the single-value visitor count, or from giving each metric its own
@@ -139,6 +147,7 @@ type sparklineCache struct {
 
 var requestRate sparklineCache
 var p95Latency sparklineCache
+var errorRate sparklineCache
 
 func (c *sparklineCache) get() ([]float64, time.Time) {
 	c.mu.RLock()
