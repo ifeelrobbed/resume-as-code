@@ -22,6 +22,19 @@ const visitorCountQuery = `sum(increase(resume_http_requests_total{handler="inde
 
 const pollInterval = 30 * time.Second
 
+// Scoped to handler="index" deliberately - unlike visitorCountQuery's
+// increase() (which only cares about total visits), a live rate needs to
+// exclude the readiness/liveness probes kubelet fires at /status every
+// 5s/15s. Those aren't excluded from resume_http_requests_total the way
+// the blackbox exporter's traffic is (see instrument() in metrics.go) -
+// confirmed live that they alone produce a flat ~0.267 req/s baseline
+// that would otherwise swamp real traffic in the sparkline.
+const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[5m]))`
+
+const requestRateWindow = 24 * time.Hour
+const requestRateStep = "30m"
+const requestRatePollInterval = 5 * time.Minute
+
 var prometheusURL = envOrDefault("PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090")
 
 func envOrDefault(key, fallback string) string {
@@ -102,4 +115,90 @@ func queryVisitorCount(client *http.Client) (int64, error) {
 		return 0, err
 	}
 	return int64(f), nil
+}
+
+// requestRate holds a 24h window of req/s samples for the homepage
+// sparkline. A slice, not a single value, since this backs a chart rather
+// than a single stat - see requestRateStep for the sample spacing.
+type requestRateCache struct {
+	mu        sync.RWMutex
+	points    []float64
+	updatedAt time.Time
+}
+
+var requestRate requestRateCache
+
+func (c *requestRateCache) get() ([]float64, time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.points, c.updatedAt
+}
+
+func (c *requestRateCache) set(points []float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.points = points
+	c.updatedAt = time.Now()
+}
+
+// pollRequestRate refreshes the 24h window every few minutes rather than
+// every pollInterval - the window barely moves minute to minute, so there's
+// nothing to gain from polling as often as the single-value visitor count.
+func pollRequestRate() {
+	client := &http.Client{Timeout: 5 * time.Second}
+	for {
+		if points, err := queryRequestRate(client); err != nil {
+			log.Printf("request rate poll: %v", err)
+		} else {
+			requestRate.set(points)
+		}
+		time.Sleep(requestRatePollInterval)
+	}
+}
+
+// prometheusRangeResponse is query_range's shape - a matrix of series, each
+// with a list of [timestamp, value] samples, unlike query's single "value".
+type prometheusRangeResponse struct {
+	Data struct {
+		Result []struct {
+			Values [][2]interface{} `json:"values"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+func queryRequestRate(client *http.Client) ([]float64, error) {
+	now := time.Now()
+	start := now.Add(-requestRateWindow).Unix()
+	end := now.Unix()
+
+	u := prometheusURL + "/api/v1/query_range?query=" + url.QueryEscape(requestRateQuery) +
+		"&start=" + strconv.FormatInt(start, 10) +
+		"&end=" + strconv.FormatInt(end, 10) +
+		"&step=" + requestRateStep
+
+	resp, err := client.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var pr prometheusRangeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return nil, err
+	}
+	if len(pr.Data.Result) == 0 {
+		return nil, nil
+	}
+
+	values := pr.Data.Result[0].Values
+	points := make([]float64, 0, len(values))
+	for _, v := range values {
+		str, _ := v[1].(string)
+		f, err := strconv.ParseFloat(str, 64)
+		if err != nil {
+			continue
+		}
+		points = append(points, f)
+	}
+	return points, nil
 }

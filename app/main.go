@@ -41,6 +41,7 @@ func main() {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", noCacheHeaders(http.FileServer(http.Dir("static")))))
 
 	go pollVisitorCount()
+	go pollRequestRate()
 
 	addr := ":8080"
 	log.Printf("listening on %s (build %s)", addr, buildTime)
