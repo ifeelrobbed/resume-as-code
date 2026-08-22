@@ -14,10 +14,21 @@ spec:
   groups:
     - name: resume-site.slo
       rules:
+        # Scoped to handler="index", not every handler - kubelet's
+        # readiness/liveness probes hit /status every 5s/15s, always 200,
+        # and aren't excluded from resume_http_requests_total the way the
+        # blackbox exporter's traffic is (see instrument() in
+        # app/metrics.go). Left unscoped, that high-volume always-success
+        # traffic dilutes error_ratio5m far below the real rate on actual
+        # visitor traffic, silently desensitizing ResumeSiteElevatedErrorRate
+        # well below its documented 5% threshold. Confirmed live: the
+        # unscoped rate5m read 0.270 req/s vs. 0.0037 req/s once scoped to
+        # index - a ~73x inflated denominator, not a marginal rounding
+        # difference.
         - record: resume_site:http_requests:rate5m
-          expr: sum(rate(resume_http_requests_total[5m]))
+          expr: sum(rate(resume_http_requests_total{handler="index"}[5m]))
         - record: resume_site:http_requests:error_rate5m
-          expr: sum(rate(resume_http_requests_total{code=~"5.."}[5m]))
+          expr: sum(rate(resume_http_requests_total{handler="index",code=~"5.."}[5m]))
         # Divides two recorded series rather than the raw counters
         # directly, so Grafana/alerting only ever deals with one already-
         # aggregated ratio. NaN (0/0) when there's been no traffic in the
