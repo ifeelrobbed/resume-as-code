@@ -31,9 +31,19 @@ const pollInterval = 30 * time.Second
 // that would otherwise swamp real traffic in the sparkline.
 const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[5m]))`
 
-const requestRateWindow = 24 * time.Hour
-const requestRateStep = "30m"
-const requestRatePollInterval = 5 * time.Minute
+// Same handler="index" scoping, and for the same reason: resume_http_
+// request_duration_seconds is a HistogramVec keyed by handler, so filtering
+// to index here already excludes /status's kubelet-probe-dominated latency
+// without needing a separate exclusion.
+const p95LatencyQuery = `histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler="index"}[5m])) by (le))`
+
+// Shared by both sparkline metrics above - a 24h window barely moves
+// minute to minute, so there's nothing to gain from polling as often as
+// the single-value visitor count, or from giving each metric its own
+// window/step.
+const sparklineWindow = 24 * time.Hour
+const sparklineStep = "30m"
+const sparklinePollInterval = 5 * time.Minute
 
 var prometheusURL = envOrDefault("PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090")
 
@@ -117,42 +127,45 @@ func queryVisitorCount(client *http.Client) (int64, error) {
 	return int64(f), nil
 }
 
-// requestRate holds a 24h window of req/s samples for the homepage
-// sparkline. A slice, not a single value, since this backs a chart rather
-// than a single stat - see requestRateStep for the sample spacing.
-type requestRateCache struct {
+// sparklineCache holds a 24h window of samples for a homepage sparkline -
+// a slice, not a single value, since this backs a chart rather than a
+// single stat. Shared by both requestRate and p95Latency below, since both
+// are polled and rendered identically - only the query string differs.
+type sparklineCache struct {
 	mu        sync.RWMutex
 	points    []float64
 	updatedAt time.Time
 }
 
-var requestRate requestRateCache
+var requestRate sparklineCache
+var p95Latency sparklineCache
 
-func (c *requestRateCache) get() ([]float64, time.Time) {
+func (c *sparklineCache) get() ([]float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.points, c.updatedAt
 }
 
-func (c *requestRateCache) set(points []float64) {
+func (c *sparklineCache) set(points []float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.points = points
 	c.updatedAt = time.Now()
 }
 
-// pollRequestRate refreshes the 24h window every few minutes rather than
-// every pollInterval - the window barely moves minute to minute, so there's
-// nothing to gain from polling as often as the single-value visitor count.
-func pollRequestRate() {
+// pollSparkline refreshes cache's 24h window from query every few minutes
+// rather than every pollInterval - the window barely moves minute to
+// minute, so there's nothing to gain from polling as often as the
+// single-value visitor count. name is just for the log line on failure.
+func pollSparkline(name, query string, cache *sparklineCache) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for {
-		if points, err := queryRequestRate(client); err != nil {
-			log.Printf("request rate poll: %v", err)
+		if points, err := queryRange(client, query); err != nil {
+			log.Printf("%s poll: %v", name, err)
 		} else {
-			requestRate.set(points)
+			cache.set(points)
 		}
-		time.Sleep(requestRatePollInterval)
+		time.Sleep(sparklinePollInterval)
 	}
 }
 
@@ -166,15 +179,15 @@ type prometheusRangeResponse struct {
 	} `json:"data"`
 }
 
-func queryRequestRate(client *http.Client) ([]float64, error) {
+func queryRange(client *http.Client, query string) ([]float64, error) {
 	now := time.Now()
-	start := now.Add(-requestRateWindow).Unix()
+	start := now.Add(-sparklineWindow).Unix()
 	end := now.Unix()
 
-	u := prometheusURL + "/api/v1/query_range?query=" + url.QueryEscape(requestRateQuery) +
+	u := prometheusURL + "/api/v1/query_range?query=" + url.QueryEscape(query) +
 		"&start=" + strconv.FormatInt(start, 10) +
 		"&end=" + strconv.FormatInt(end, 10) +
-		"&step=" + requestRateStep
+		"&step=" + sparklineStep
 
 	resp, err := client.Get(u)
 	if err != nil {

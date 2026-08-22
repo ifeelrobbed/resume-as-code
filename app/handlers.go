@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -41,8 +42,8 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 // Stats is the live data every page can show - visitor count (and when it
 // was last confirmed via Prometheus, as a bare unix timestamp so the
 // template can render it in the visitor's own timezone), process uptime,
-// build time (see main.go's buildTime, injected via -ldflags), and a 24h
-// request-rate sparkline.
+// build time (see main.go's buildTime, injected via -ldflags), and 24h
+// request-rate/p95-latency sparklines.
 type Stats struct {
 	VisitorCount            int64
 	VisitorCountUpdatedUnix int64
@@ -50,6 +51,8 @@ type Stats struct {
 	LastDeploy              string
 	RequestRateCurrent      string
 	RequestRateSparkline    string
+	P95LatencyCurrent       string
+	P95LatencySparkline     string
 }
 
 func stats() Stats {
@@ -59,10 +62,18 @@ func stats() Stats {
 		updatedUnix = updatedAt.Unix()
 	}
 
-	points, _ := requestRate.get()
+	ratePoints, _ := requestRate.get()
 	rateCurrent := "—"
-	if len(points) > 0 {
-		rateCurrent = fmt.Sprintf("%.2f", points[len(points)-1])
+	if len(ratePoints) > 0 {
+		rateCurrent = fmt.Sprintf("%.2f", ratePoints[len(ratePoints)-1])
+	}
+
+	// histogram_quantile()'s buckets are seconds - ms reads better here
+	// than e.g. "0.012s" for a page this fast.
+	latencyPoints, _ := p95Latency.get()
+	latencyCurrent := "—"
+	if n := len(latencyPoints); n > 0 && !math.IsNaN(latencyPoints[n-1]) {
+		latencyCurrent = fmt.Sprintf("%.1fms", latencyPoints[n-1]*1000)
 	}
 
 	return Stats{
@@ -71,17 +82,33 @@ func stats() Stats {
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
 		RequestRateCurrent:      rateCurrent,
-		RequestRateSparkline:    sparklinePoints(points),
+		RequestRateSparkline:    sparklinePoints(ratePoints),
+		P95LatencyCurrent:       latencyCurrent,
+		P95LatencySparkline:     sparklinePoints(latencyPoints),
 	}
 }
 
 // sparklinePoints normalizes a series of values into an SVG polyline
 // points string fit to the site's existing 90x24 sparkline viewBox.
-// Falls back to a flat centered line when there's no variance (or only
-// one point) rather than dividing by zero - a real possibility here, since
-// requestRateQuery's traffic can be this flat for real stretches.
+// Drops NaN values first - histogram_quantile() returns NaN for a step
+// with no samples yet (e.g. early in a fresh 24h window), and a single
+// NaN would otherwise poison the min/max scan below (comparisons against
+// NaN are always false, so min/max could get stuck at NaN for the rest
+// of the series). Falls back to a flat centered line when there's no
+// variance (or only one point) rather than dividing by zero - a real
+// possibility here, since requestRateQuery's traffic can be this flat for
+// real stretches.
 func sparklinePoints(values []float64) string {
 	const width, height = 90.0, 24.0
+
+	clean := make([]float64, 0, len(values))
+	for _, v := range values {
+		if !math.IsNaN(v) {
+			clean = append(clean, v)
+		}
+	}
+	values = clean
+
 	if len(values) == 0 {
 		return ""
 	}
