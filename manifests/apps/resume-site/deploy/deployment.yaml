@@ -23,7 +23,7 @@ spec:
           # sha- tag, nothing stops the registry tag itself from being
           # overwritten later. Use a sha- tag instead of a version tag
           # here if that mutability ever actually matters.
-          image: ghcr.io/ifeelrobbed/resume-as-code:sha-5ed7fcc
+          image: ghcr.io/ifeelrobbed/resume-as-code:sha-92d6113
           ports:
             - containerPort: 8080
           resources:
