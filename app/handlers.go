@@ -41,12 +41,15 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 // Stats is the live data every page can show - visitor count (and when it
 // was last confirmed via Prometheus, as a bare unix timestamp so the
 // template can render it in the visitor's own timezone), process uptime,
-// and build time (see main.go's buildTime, injected via -ldflags).
+// build time (see main.go's buildTime, injected via -ldflags), and a 24h
+// request-rate sparkline.
 type Stats struct {
 	VisitorCount            int64
 	VisitorCountUpdatedUnix int64
 	Uptime                  string
 	LastDeploy              string
+	RequestRateCurrent      string
+	RequestRateSparkline    string
 }
 
 func stats() Stats {
@@ -55,12 +58,62 @@ func stats() Stats {
 	if !updatedAt.IsZero() {
 		updatedUnix = updatedAt.Unix()
 	}
+
+	points, _ := requestRate.get()
+	rateCurrent := "—"
+	if len(points) > 0 {
+		rateCurrent = fmt.Sprintf("%.2f", points[len(points)-1])
+	}
+
 	return Stats{
 		VisitorCount:            count,
 		VisitorCountUpdatedUnix: updatedUnix,
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
+		RequestRateCurrent:      rateCurrent,
+		RequestRateSparkline:    sparklinePoints(points),
 	}
+}
+
+// sparklinePoints normalizes a series of values into an SVG polyline
+// points string fit to the site's existing 90x24 sparkline viewBox.
+// Falls back to a flat centered line when there's no variance (or only
+// one point) rather than dividing by zero - a real possibility here, since
+// requestRateQuery's traffic can be this flat for real stretches.
+func sparklinePoints(values []float64) string {
+	const width, height = 90.0, 24.0
+	if len(values) == 0 {
+		return ""
+	}
+	if len(values) == 1 {
+		return fmt.Sprintf("0.0,%.1f %.1f,%.1f", height/2, width, height/2)
+	}
+
+	min, max := values[0], values[0]
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	span := max - min
+
+	var b strings.Builder
+	step := width / float64(len(values)-1)
+	for i, v := range values {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		x := float64(i) * step
+		y := height / 2
+		if span > 0 {
+			y = height - ((v-min)/span)*height
+		}
+		fmt.Fprintf(&b, "%.1f,%.1f", x, y)
+	}
+	return b.String()
 }
 
 // IndexData is what templates/index.html renders. Recent is the homepage's

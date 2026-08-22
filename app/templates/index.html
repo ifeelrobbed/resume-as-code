@@ -69,6 +69,19 @@
     </section>
 
     <section class="section">
+      <p class="eyebrow">observability</p>
+      <div class="status-grid">
+        <div class="stat">
+          <p class="stat-label">req/s &middot; 24h</p>
+          <p class="stat-value">{{.Stats.RequestRateCurrent}}</p>
+          <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
+            <polyline points="{{.Stats.RequestRateSparkline}}" />
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
       <p class="eyebrow">stack</p>
       <div class="stack-tags">
         {{range .Resume.Stack}}<span class="tag">{{.}}</span>{{end}}
