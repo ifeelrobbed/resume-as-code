@@ -43,7 +43,7 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 // was last confirmed via Prometheus, as a bare unix timestamp so the
 // template can render it in the visitor's own timezone), process uptime,
 // build time (see main.go's buildTime, injected via -ldflags), and 24h
-// request-rate/p95-latency sparklines.
+// request-rate/p95-latency/error-rate sparklines.
 type Stats struct {
 	VisitorCount            int64
 	VisitorCountUpdatedUnix int64
@@ -53,6 +53,8 @@ type Stats struct {
 	RequestRateSparkline    string
 	P95LatencyCurrent       string
 	P95LatencySparkline     string
+	ErrorRateCurrent        string
+	ErrorRateSparkline      string
 }
 
 func stats() Stats {
@@ -76,6 +78,13 @@ func stats() Stats {
 		latencyCurrent = fmt.Sprintf("%.1fms", latencyPoints[n-1]*1000)
 	}
 
+	// error_ratio5m is a fraction (0-1), not a percentage - *100 for display.
+	errorPoints, _ := errorRate.get()
+	errorCurrent := "—"
+	if n := len(errorPoints); n > 0 && !math.IsNaN(errorPoints[n-1]) {
+		errorCurrent = fmt.Sprintf("%.2f%%", errorPoints[n-1]*100)
+	}
+
 	return Stats{
 		VisitorCount:            count,
 		VisitorCountUpdatedUnix: updatedUnix,
@@ -85,6 +94,8 @@ func stats() Stats {
 		RequestRateSparkline:    sparklinePoints(ratePoints),
 		P95LatencyCurrent:       latencyCurrent,
 		P95LatencySparkline:     sparklinePoints(latencyPoints),
+		ErrorRateCurrent:        errorCurrent,
+		ErrorRateSparkline:      sparklinePoints(errorPoints),
 	}
 }
 
