@@ -1,0 +1,449 @@
+# Dashboard content as code, discovered by the grafana-sc-dashboard sidecar
+# (LABEL=grafana_dashboard, LABEL_VALUE=1, NAMESPACE=ALL - confirmed live
+# against the sidecar container's own env, kube-prometheus-stack/
+# application.yaml sets none of this explicitly, chart defaults apply).
+# uid is fixed ("resume-site"), not left to auto-generate, deliberately -
+# once this dashboard has a Public Dashboard share enabled (a manual,
+# one-time step; that config isn't provisionable as code, see
+# platform/grafana-persistence PR), the share is tied to this exact UID.
+# A UID that changed on every re-provision would silently orphan that link.
+#
+# Built and verified against the live cluster before committing: every
+# panel's PromQL confirmed returning real data via Prometheus's API, and
+# the exact JSON below confirmed to re-import cleanly through Grafana's own
+# dashboard API with this fixed uid (what the sidecar does under the hood).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resume-site-dashboard
+  namespace: resume-site
+  labels:
+    grafana_dashboard: "1"
+data:
+  resume-site.json: |
+        {
+          "panels": [
+            {
+              "collapsed": false,
+              "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+              },
+              "title": "Availability & SLO",
+              "type": "row"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 0,
+                "y": 1
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "avg_over_time(probe_success{target=\"resume-site\"}[15d]) * 100",
+                  "instant": true,
+                  "legendFormat": "",
+                  "refId": "A"
+                }
+              ],
+              "title": "Uptime (15d, external probe)",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "d"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 6,
+                "y": 1
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "(probe_ssl_earliest_cert_expiry{target=\"resume-site\"} - time()) / 86400",
+                  "instant": true,
+                  "legendFormat": "",
+                  "refId": "A"
+                }
+              ],
+              "title": "Cert expiry",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "ms"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 12,
+                "y": 1
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "instant": true,
+                  "legendFormat": "",
+                  "refId": "A"
+                }
+              ],
+              "title": "Current p95 latency (index)",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 18,
+                "y": 1
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "resume_build_info",
+                  "format": "table",
+                  "instant": true,
+                  "refId": "A"
+                }
+              ],
+              "title": "Current build",
+              "transformations": [
+                {
+                  "id": "labelsToFields",
+                  "options": {}
+                }
+              ],
+              "type": "table"
+            },
+            {
+              "collapsed": false,
+              "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 9
+              },
+              "title": "RED: Rate, Errors, Duration",
+              "type": "row"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "reqps"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 10
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "sum by (handler) (rate(resume_http_requests_total[5m]))",
+                  "legendFormat": "{{handler}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Request rate by handler",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 10
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "resume_site:http_requests:error_ratio5m * 100",
+                  "legendFormat": "error %",
+                  "refId": "A"
+                }
+              ],
+              "title": "Error rate (index)",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "ms"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 18
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "histogram_quantile(0.50, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "legendFormat": "p50",
+                  "refId": "A"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "legendFormat": "p95",
+                  "refId": "B"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "histogram_quantile(0.99, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "legendFormat": "p99",
+                  "refId": "C"
+                }
+              ],
+              "title": "Latency percentiles (index)",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 18
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "resume_http_requests_in_flight",
+                  "legendFormat": "in-flight",
+                  "refId": "A"
+                }
+              ],
+              "title": "In-flight requests",
+              "type": "timeseries"
+            },
+            {
+              "collapsed": false,
+              "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 26
+              },
+              "title": "Engagement",
+              "type": "row"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 27
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "sum by (target) (increase(resume_engagement_clicks_total[$__range]))",
+                  "instant": true,
+                  "legendFormat": "{{target}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Outbound clicks by target ($__range)",
+              "type": "bargauge"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 27
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "sum(increase(resume_http_requests_total{handler=\"resume\"}[24h]))",
+                  "instant": true,
+                  "legendFormat": "",
+                  "refId": "A"
+                }
+              ],
+              "title": "Resume page reads (24h)",
+              "type": "stat"
+            },
+            {
+              "collapsed": false,
+              "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 35
+              },
+              "title": "Platform health",
+              "type": "row"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 36
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "up{job=~\"cert-manager|cainjector|webhook|ingress-nginx-controller-metrics|resume-site|apiserver\"}",
+                  "format": "table",
+                  "instant": true,
+                  "refId": "A"
+                }
+              ],
+              "title": "Component scrape health",
+              "transformations": [
+                {
+                  "id": "labelsToFields",
+                  "options": {}
+                }
+              ],
+              "type": "table"
+            }
+          ],
+          "refresh": "1m",
+          "schemaVersion": 39,
+          "tags": [
+            "resume-site"
+          ],
+          "time": {
+            "from": "now-24h",
+            "to": "now"
+          },
+          "timezone": "browser",
+          "title": "resume-site",
+          "uid": "resume-site"
+        }
