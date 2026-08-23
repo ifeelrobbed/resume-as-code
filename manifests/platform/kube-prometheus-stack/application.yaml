@@ -121,10 +121,24 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
-          # No persistence - dashboards/datasources are provisioned via the
-          # chart's ConfigMap sidecar (ships enabled by default), so Grafana
-          # stays stateless and reproducible on redeploy instead of relying
-          # on manually-created dashboards surviving a pod restart.
+          # Dashboards/datasources still come entirely from the chart's
+          # ConfigMap sidecar (unaffected by this) - this PVC is only for
+          # Grafana's own SQLite database (orgs, users, and critically any
+          # Public Dashboard share config), which lives at /var/lib/grafana
+          # and was on an emptyDir - wiped on every pod restart, which would
+          # silently break/regenerate any public dashboard link. 1Gi is
+          # generous; that DB is a few MB at this scale. type: sts converts
+          # the workload from Deployment to StatefulSet, required for a
+          # persistence.enabled Grafana to actually get a real
+          # volumeClaimTemplate instead of a same-emptyDir no-op - confirmed
+          # via `helm template` before writing this.
+          persistence:
+            enabled: true
+            type: sts
+            storageClassName: managed-csi
+            accessModes:
+              - ReadWriteOnce
+            size: 1Gi
           ingress:
             enabled: true
             ingressClassName: nginx
