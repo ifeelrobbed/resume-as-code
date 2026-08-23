@@ -158,6 +158,25 @@ data:
                 {
                   "id": "labelsToFields",
                   "options": {}
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {
+                      "Time": true,
+                      "Value": true,
+                      "__name__": true,
+                      "container": true,
+                      "endpoint": true,
+                      "instance": true,
+                      "job": true,
+                      "namespace": true,
+                      "pod": true,
+                      "service": true
+                    },
+                    "indexByName": {},
+                    "renameByName": {}
+                  }
                 }
               ],
               "type": "table"
@@ -333,7 +352,8 @@ data:
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short"
+                  "unit": "short",
+                  "decimals": 0
                 },
                 "overrides": []
               },
@@ -349,13 +369,13 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "sum by (target) (increase(resume_engagement_clicks_total[$__range]))",
+                  "expr": "sum by (target) (increase(resume_engagement_clicks_total[15d]))",
                   "instant": true,
                   "legendFormat": "{{target}}",
                   "refId": "A"
                 }
               ],
-              "title": "Outbound clicks by target ($__range)",
+              "title": "Outbound clicks by target (15d)",
               "type": "bargauge"
             },
             {
