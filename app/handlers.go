@@ -154,12 +154,21 @@ func sparklinePoints(values []float64) string {
 	return b.String()
 }
 
+// grafanaDashboardURL is the Grafana Public Dashboard share link for the
+// resume-site dashboard (manifests/platform/kube-prometheus-stack/
+// resume-site-dashboard.yaml) - enabled once, manually, via Grafana's API
+// (not provisionable as code, see the persistence PR). The access token is
+// tied to that dashboard's fixed uid ("resume-site"), so it survives
+// re-provisioning the dashboard JSON but not a share being disabled/re-created.
+const grafanaDashboardURL = "https://grafana.robertjcameron.com/public-dashboards/992c146423e540d5a3c1bcf70f71c6ee"
+
 // IndexData is what templates/index.html renders. Recent is the homepage's
 // condensed preview - just the two most recent Experience entries.
 type IndexData struct {
-	Stats  Stats
-	Resume Resume
-	Recent []Experience
+	Stats               Stats
+	Resume              Resume
+	Recent              []Experience
+	GrafanaDashboardURL string
 }
 
 // ResumeData is what templates/resume.html renders. SpecYAML is the same
@@ -174,9 +183,10 @@ type ResumeData struct {
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	data := IndexData{
-		Stats:  stats(),
-		Resume: resume,
-		Recent: resume.Experience[:2],
+		Stats:               stats(),
+		Resume:              resume,
+		Recent:              resume.Experience[:2],
+		GrafanaDashboardURL: grafanaDashboardURL,
 	}
 	if err := templates.ExecuteTemplate(w, "index.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
