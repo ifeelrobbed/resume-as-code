@@ -24,6 +24,7 @@ data:
         {
           "panels": [
             {
+              "id": 1,
               "collapsed": false,
               "gridPos": {
                 "h": 1,
@@ -35,6 +36,7 @@ data:
               "type": "row"
             },
             {
+              "id": 2,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -67,6 +69,7 @@ data:
               "type": "stat"
             },
             {
+              "id": 3,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -99,6 +102,7 @@ data:
               "type": "stat"
             },
             {
+              "id": 4,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -131,6 +135,7 @@ data:
               "type": "stat"
             },
             {
+              "id": 5,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -182,6 +187,7 @@ data:
               "type": "table"
             },
             {
+              "id": 6,
               "collapsed": false,
               "gridPos": {
                 "h": 1,
@@ -193,6 +199,7 @@ data:
               "type": "row"
             },
             {
+              "id": 7,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -224,6 +231,7 @@ data:
               "type": "timeseries"
             },
             {
+              "id": 8,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -255,6 +263,7 @@ data:
               "type": "timeseries"
             },
             {
+              "id": 9,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -304,6 +313,7 @@ data:
               "type": "timeseries"
             },
             {
+              "id": 10,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -335,6 +345,7 @@ data:
               "type": "timeseries"
             },
             {
+              "id": 11,
               "collapsed": false,
               "gridPos": {
                 "h": 1,
@@ -346,6 +357,7 @@ data:
               "type": "row"
             },
             {
+              "id": 12,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -379,6 +391,7 @@ data:
               "type": "bargauge"
             },
             {
+              "id": 13,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -411,6 +424,7 @@ data:
               "type": "stat"
             },
             {
+              "id": 14,
               "collapsed": false,
               "gridPos": {
                 "h": 1,
@@ -422,6 +436,7 @@ data:
               "type": "row"
             },
             {
+              "id": 15,
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
