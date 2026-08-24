@@ -7,9 +7,10 @@ import "net/http"
 // hit it with an arbitrary value. Feeding that straight into a Prometheus
 // label would let a single curl loop create unbounded time series.
 var engagementTargets = map[string]bool{
-	"linkedin":      true,
-	"github":        true,
-	"github-source": true,
+	"linkedin":          true,
+	"github":            true,
+	"github-source":     true,
+	"grafana-dashboard": true,
 }
 
 func engagementClickHandler(w http.ResponseWriter, r *http.Request) {
