@@ -381,7 +381,7 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "sum by (target) (increase(resume_engagement_clicks_total[15d]))",
+                  "expr": "sum by (target) (max_over_time(resume_engagement_clicks_total[15d]))",
                   "instant": true,
                   "legendFormat": "{{target}}",
                   "refId": "A"
@@ -398,7 +398,8 @@ data:
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short"
+                  "unit": "short",
+                  "decimals": 0
                 },
                 "overrides": []
               },
