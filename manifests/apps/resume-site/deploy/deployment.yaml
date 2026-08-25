@@ -15,14 +15,21 @@ spec:
     spec:
       containers:
         - name: resume-site
-          # Bump this tag in a PR to deploy - same as any other GitOps
-          # change (see ARCHITECTURE.md "GitOps bootstrap and upgrade
-          # path"). Release tags (vX.Y.Z) are retagged copies of an
-          # already-built sha- image (see app-release.yml) - readable for
-          # a human scanning `kubectl get deploy -o yaml`, but unlike a
-          # sha- tag, nothing stops the registry tag itself from being
-          # overwritten later. Use a sha- tag instead of a version tag
-          # here if that mutability ever actually matters.
+          # Rewritten automatically on every merge to master by app-ci's
+          # deploy job (.github/workflows/app-ci.yml), which opens and
+          # merges a PR bumping this one line - so a deploy is still an
+          # auditable PR, just not one anyone has to hand-write. Editing
+          # it by hand still works for pinning or rolling back; the next
+          # merge touching app/ moves it forward again.
+          #
+          # That job's rewrite assumes this is the only image: line in the
+          # file, and fails loudly rather than guessing if that changes.
+          #
+          # Release tags (vX.Y.Z) are retagged copies of an already-built
+          # sha- image (see app-release.yml) - readable for a human
+          # scanning `kubectl get deploy -o yaml`, but unlike a sha- tag,
+          # nothing stops the registry tag itself from being overwritten
+          # later. Use a sha- tag instead if that mutability ever matters.
           image: ghcr.io/ifeelrobbed/resume-as-code:sha-f03940d
           ports:
             - containerPort: 8080

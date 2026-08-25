@@ -18,11 +18,16 @@ env:
 
 jobs:
   # No paths: filter on the pull_request trigger (unlike push above) -
-  # same self-gating shape as manifests-ci.yml/terraform-plan.yml: always
-  # run, check relevance internally, report a trivial pass when app/
+  # same self-gating trigger pattern as manifests-ci.yml/terraform-plan.yml:
+  # always run, check relevance internally, report a trivial pass when app/
   # wasn't touched, instead of needing a separate noop workflow.
   build:
     runs-on: ubuntu-latest
+    # Consumed by the deploy job below, which needs to know whether an image
+    # was actually built and which sha- tag it carries.
+    outputs:
+      relevant: ${{ steps.changes.outputs.relevant }}
+      revision: ${{ steps.gitrevision.outputs.value }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,7 +78,7 @@ jobs:
         if: steps.changes.outputs.relevant == 'true'
 
       # Only push on an actual merge to master - PRs build/test to catch
-      # breaks before merge, same review-then-merge shape as the terraform
+      # breaks before merge, same review-then-merge flow as the terraform
       # workflows, but never publish an image for unreviewed code.
       - uses: docker/login-action@v4
         if: steps.changes.outputs.relevant == 'true' && github.event_name != 'pull_request'
@@ -103,3 +108,102 @@ jobs:
             GIT_REVISION=${{ steps.gitrevision.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Closes the two-PR deploy loop. app-ci used to push an image and stop,
+  # leaving a human to open a second PR that did nothing but retype the new
+  # sha- tag into deployment.yaml. That bump is mechanical, so CI does it -
+  # but still as a merged PR rather than a direct push, so a deploy stays
+  # visible in the repo's history and master's branch protection is satisfied
+  # rather than bypassed.
+  #
+  # Argo CD Image Updater is likely the better end state - it's the
+  # platform-native answer and a better demo of the subject matter. It's
+  # deferred here, not rejected: at this cluster's scale it costs another pod
+  # on the single node and the repo's first git write-back credential, and
+  # that opportunity cost is hard to justify while higher-priority work is
+  # outstanding. This job removes the same toil now, cheaply, and doesn't
+  # foreclose that move later - GITHUB_TOKEN can open and merge a PR, so
+  # nothing here needs a secret or anything running in-cluster.
+  #
+  # One caveat worth remembering: GitHub deliberately does not trigger
+  # `on: pull_request` workflows for PRs opened with GITHUB_TOKEN, so this
+  # PR's checks never run. Harmless while master has no required status
+  # checks - but if `build` is ever made required again, this job needs a
+  # GitHub App token instead, or the deploy path needs an explicit exemption.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && needs.build.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    # Serialized: two merges in quick succession would otherwise race to
+    # rewrite the same line. cancel-in-progress stays false because every
+    # image that got built deserves its deploy PR, even if a newer one is
+    # already queued behind it.
+    concurrency:
+      group: deploy-resume-site
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: bump the image tag and merge the deploy PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVISION: ${{ needs.build.outputs.revision }}
+        run: |
+          set -euo pipefail
+
+          manifest=manifests/apps/resume-site/deploy/deployment.yaml
+          image="ghcr.io/${GITHUB_REPOSITORY}:sha-${REVISION}"
+          branch="deploy/resume-site-sha-${REVISION}"
+
+          # Branch from current master rather than from this run's commit: an
+          # earlier deploy may have landed in between, and rewriting the tag
+          # from a stale base would quietly reintroduce the older image.
+          git fetch origin master
+          git switch -c "$branch" origin/master
+
+          # The rewrite below assumes exactly one image: line. If a sidecar
+          # ever joins this Deployment, fail here rather than silently point
+          # both containers at the app image.
+          count=$(grep -cE '^[[:space:]]*image:[[:space:]]' "$manifest")
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one 'image:' line in $manifest, found $count"
+            exit 1
+          fi
+          sed -i -E "s|^([[:space:]]*)image:[[:space:]].*|\1image: ${image}|" "$manifest"
+
+          if git diff --quiet -- "$manifest"; then
+            echo "$manifest is already at $image - nothing to deploy."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "manifests: deploy resume-site sha-${REVISION}" -- "$manifest"
+          git push --set-upstream origin "$branch"
+
+          body=$(cat <<EOF
+          Rolls resume-site to the image built from ${GITHUB_SHA} by [this app-ci run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}).
+
+          Opened and merged automatically by the deploy job in .github/workflows/app-ci.yml. To roll back, revert this PR - Argo CD syncs whatever master says.
+          EOF
+          )
+
+          gh pr create \
+            --base master \
+            --head "$branch" \
+            --title "manifests: deploy resume-site sha-${REVISION}" \
+            --body "$body"
+
+          # GitHub computes mergeability asynchronously, so a merge attempted
+          # in the same second as the create can be rejected while the state
+          # is still UNKNOWN.
+          for _ in $(seq 1 12); do
+            state=$(gh pr view "$branch" --json mergeable --jq .mergeable)
+            [ "$state" = "MERGEABLE" ] && break
+            sleep 5
+          done
+
+          gh pr merge "$branch" --merge --delete-branch
