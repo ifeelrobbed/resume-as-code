@@ -13,6 +13,25 @@ spec:
       labels:
         app: resume-site
     spec:
+      # The image already runs as distroless' nonroot user, but nothing here
+      # said so - a base image change could have flipped that silently, with
+      # no signal. Declaring it makes non-root the cluster's guarantee rather
+      # than the Dockerfile's. 65532 is distroless' nonroot uid/gid, read off
+      # the published image rather than assumed.
+      #
+      # Together with the container-level block below this satisfies the
+      # restricted Pod Security Standard, which a static Go binary serving
+      # HTTP from two read-only directories has no reason not to meet.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # Nothing here talks to the Kubernetes API - the app serves HTTP and
+      # polls Prometheus over the network. Without this, the pod still gets a
+      # mounted API token it has no use for, which is only ever a liability.
+      automountServiceAccountToken: false
       containers:
         - name: resume-site
           # Rewritten automatically on every merge to master by app-ci's
@@ -33,10 +52,35 @@ spec:
           image: ghcr.io/ifeelrobbed/resume-as-code:sha-bdfa115
           ports:
             - containerPort: 8080
+          # No capabilities are needed: the binary listens on 8080, above the
+          # privileged-port boundary, and touches nothing else the kernel
+          # gates. Verified by running this exact image under --read-only
+          # --cap-drop ALL --user 65532 before committing - all four routes
+          # still served.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 50m
               memory: 32Mi
+            limits:
+              # Memory only, deliberately. CPU is compressible - a runaway can
+              # only slow this pod down, never take the node out - and a CFS
+              # quota would throttle request latency for nothing in return.
+              # Memory is not compressible, which is exactly why it gets a
+              # ceiling and CPU doesn't.
+              #
+              # 64Mi against a 14.7Mi peak working set measured over the last
+              # 15 days (8Mi typical, and the Go runtime reserves ~13Mi of
+              # that). Roughly 4x headroom, while still small enough that this
+              # pod can't threaten a single node it shares with Prometheus,
+              # Grafana and Alertmanager - which is the whole point of setting
+              # it. Re-measure before assuming this number still fits.
+              memory: 64Mi
           readinessProbe:
             httpGet:
               path: /status
