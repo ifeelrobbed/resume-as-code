@@ -22,12 +22,20 @@ spec:
           service:
             annotations:
               # Pin the Service to the static IP Terraform manages
-              # (infra/envs/prod, azurerm_public_ip.ingress) instead of
-              # letting the cloud-provider create/own an ephemeral one tied
-              # to this Service's lifecycle. DNS (robertjcameron.com) points
-              # at this address.
+              # (infra/envs/prod, azurerm_public_ip.ingress_app_rg) instead
+              # of letting the cloud-provider create/own an ephemeral one
+              # tied to this Service's lifecycle. DNS (robertjcameron.com)
+              # points at this address.
+              #
+              # The resource group here is the app RG, not the AKS-managed
+              # node RG. Azure deletes the node RG wholesale with the
+              # cluster, so an IP living there took the site's DNS target
+              # with it on any rebuild (#65). Reaching an IP outside the
+              # node RG needs an explicit Network Contributor grant for the
+              # cluster identity - see azurerm_role_assignment
+              # .ingress_pip_network_contributor in infra/envs/prod.
               service.beta.kubernetes.io/azure-pip-name: pip-resume-site-prod-ingress
-              service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-resume-site-prod-aks-nodes
+              service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-resume-site-prod
             # Without this, Azure's LB health-probes hit the Service's own
             # port (80/443 -> NodePort) expecting a 200, but that returns
             # 404 for any unmatched host/no Ingress yet - Azure only treats
