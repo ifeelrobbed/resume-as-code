@@ -52,6 +52,18 @@ spec:
           image: ghcr.io/ifeelrobbed/resume-as-code:sha-bdfa115
           ports:
             - containerPort: 8080
+          env:
+            # The Grafana Public Dashboard share link. Lives here rather than
+            # in the Go source because the share token is created by hand
+            # against a running Grafana (it isn't provisionable - see
+            # BOOTSTRAP.md) and doesn't survive losing Grafana's database, so
+            # a cluster rebuild produces a new one. Editing it here is a
+            # manifest change; as a Go constant it needed a rebuild (#65).
+            #
+            # Unset hides the homepage link rather than rendering a dead one,
+            # so leaving this blank during a recovery is a safe state.
+            - name: GRAFANA_DASHBOARD_URL
+              value: "https://grafana.robertjcameron.com/public-dashboards/992c146423e540d5a3c1bcf70f71c6ee"
           # No capabilities are needed: the binary listens on 8080, above the
           # privileged-port boundary, and touches nothing else the kernel
           # gates. Verified by running this exact image under --read-only
