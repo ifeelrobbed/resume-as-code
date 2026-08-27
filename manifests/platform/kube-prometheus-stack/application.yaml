@@ -70,6 +70,55 @@ spec:
         kubeEtcd:
           enabled: false
 
+        # The apiserver job alone accounted for 25,268 of 52,803 head series
+        # (48%), almost entirely histogram buckets that nothing in this repo
+        # queries - the dashboard, promql/ and the app between them use only
+        # resume_*, probe_*, up and the resume_site: recording rules.
+        #
+        # Scraping deliberately stays ON: the dashboard's platform-health
+        # panel reads up{job="apiserver"}, and apiserver_request_total is
+        # cheap (416 series) and still used by kubernetes-system-apiserver.
+        # This drops the expensive buckets, not the target. See #73.
+        #
+        # The first rule is the chart's own default, copied verbatim: setting
+        # metricRelabelings here REPLACES the chart's value rather than
+        # appending to it, so omitting it would silently undo the bucket
+        # trimming kube-prometheus-stack already does.
+        kubeApiServer:
+          serviceMonitor:
+            metricRelabelings:
+              - action: drop
+                regex: (etcd_request|apiserver_request_slo|apiserver_request_sli|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|20|40|45|50)(\.0)?
+                sourceLabels:
+                  - __name__
+                  - le
+              # Kept on one line on purpose: a folded (>-) scalar joins lines
+              # with spaces, which would embed a leading space in every
+              # alternative after the first and stop them matching anything.
+              # Caught by rendering with `helm template` - the manifest still
+              # validated fine.
+              - action: drop
+                sourceLabels: [__name__]
+                regex: apiserver_(request_duration_seconds|request_body_size_bytes|request_sli_duration_seconds|response_sizes|watch_list_duration_seconds|watch_cache_read_wait_seconds|watch_events_sizes)_bucket|etcd_request_duration_seconds_bucket
+
+        # Disabled in the SAME change as the drops above, deliberately. A rule
+        # whose input metric no longer exists does not error - it evaluates to
+        # no data forever, so it never fires and nothing says so. Leaving these
+        # on would produce exactly that: alerting that looks present and is
+        # dead. (Same failure mode as the unscoped error_ratio5m silently
+        # desensitising ResumeSiteElevatedErrorRate.)
+        #
+        # No loss worth mourning here for the same reason kubeControllerManager
+        # and friends are off above: on Free-tier AKS the control plane is
+        # Azure-managed, so an API-server error-budget burn alert names a
+        # problem with no action available to me.
+        defaultRules:
+          rules:
+            kubeApiserverAvailability: false
+            kubeApiserverBurnrate: false
+            kubeApiserverHistogram: false
+            kubeApiserverSlos: false
+
         prometheusOperator:
           admissionWebhooks:
             # cert-manager (platform/cert-manager) is already running -
