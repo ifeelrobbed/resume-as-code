@@ -1,12 +1,9 @@
-# This storage account is the one piece of infra NOT managed by this
-# Terraform config - same chicken-and-egg reasoning as the Argo CD
-# bootstrap script. Create it once, by hand or via bootstrap/, before
-# running terraform init here:
-#
-#   az group create -n rg-resume-site-tfstate -l eastus2
-#   az storage account create -n resumesitetfstate -g rg-resume-site-tfstate \
-#     -l eastus2 --sku Standard_LRS --min-tls-version TLS1_2
-#   az storage container create -n tfstate --account-name resumesitetfstate
+# This storage account is NOT managed by this Terraform config - same
+# chicken-and-egg reasoning as the Argo CD bootstrap script: Terraform can't
+# keep its state in a resource it hasn't created yet. Create it once before
+# running terraform init here; the commands live in BOOTSTRAP.md at the repo
+# root, section 1, rather than being repeated in a comment that would go
+# stale the first time they changed.
 
 terraform {
   backend "azurerm" {
