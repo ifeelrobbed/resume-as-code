@@ -88,21 +88,3 @@ resource "azurerm_role_assignment" "ingress_pip_network_contributor" {
   principal_id         = module.aks.cluster_identity_principal_id
 }
 
-# The original IP, still in the node resource group and still serving traffic.
-# Kept until the cutover is verified so that reverting the ingress-nginx
-# annotation is a complete rollback; removed in a follow-up once the new IP
-# is confirmed live. prevent_destroy stays on until then.
-resource "azurerm_public_ip" "ingress" {
-  name                = "pip-${var.name_prefix}-ingress"
-  resource_group_name = module.aks.node_resource_group
-  location            = var.location
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  zones               = ["1", "2", "3"]
-  tags                = var.tags
-
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [tags]
-  }
-}
