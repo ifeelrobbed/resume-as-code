@@ -24,6 +24,21 @@ resource "azurerm_kubernetes_cluster" "this" {
     vm_size                     = var.node_vm_size
     node_count                  = var.node_count
     vnet_subnet_id              = var.subnet_id
+
+    # Azure sets these defaults on the node pool whether or not they're
+    # declared, so leaving the block out meant every plan carried an
+    # unrelated "remove upgrade_settings" diff waiting for the next apply -
+    # which would have quietly reverted max_surge to the AKS default.
+    #
+    # Worth declaring rather than just silencing: max_surge governs how many
+    # buffer nodes AKS adds before recycling an existing one, so it decides
+    # how disruptive a node reimage is. That's not academic here - enabling a
+    # network policy engine (#58) reimages the pool, and with node_count = 1
+    # this is the difference between the site moving to a new node first and
+    # the only node going away underneath it. 10% rounds up to one surge node.
+    upgrade_settings {
+      max_surge = "10%"
+    }
   }
 
   identity {
