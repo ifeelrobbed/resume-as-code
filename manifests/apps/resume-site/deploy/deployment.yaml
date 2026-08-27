@@ -49,7 +49,7 @@ spec:
           # scanning `kubectl get deploy -o yaml`, but unlike a sha- tag,
           # nothing stops the registry tag itself from being overwritten
           # later. Use a sha- tag instead if that mutability ever matters.
-          image: ghcr.io/ifeelrobbed/resume-as-code:sha-bdfa115
+          image: ghcr.io/ifeelrobbed/resume-as-code:sha-89f0bbd
           ports:
             - containerPort: 8080
           env:
