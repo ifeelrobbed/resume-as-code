@@ -14,17 +14,14 @@ stops at the cluster boundary.
 
 ## One-time setup (not managed by this Terraform)
 
-Remote state needs somewhere to live before `terraform init` will work:
+`terraform init` won't work until the state storage account exists, and
+`terraform apply` won't authenticate until the GitHub OIDC app registrations
+and their role assignments do. Both are in [`../BOOTSTRAP.md`](../BOOTSTRAP.md)
+along with everything else this project needs that isn't created by Terraform,
+Argo CD, or CI.
 
-```
-az group create -n rg-resume-site-tfstate -l eastus2
-az storage account create -n resumesitetfstate -g rg-resume-site-tfstate \
-  -l eastus2 --sku Standard_LRS --min-tls-version TLS1_2
-az storage container create -n tfstate --account-name resumesitetfstate
-```
-
-Storage account names are globally unique across all of Azure - rename
-`resumesitetfstate` in `envs/prod/backend.tf` if it's taken.
+Kept in one place deliberately - the commands used to be duplicated here and
+in `envs/prod/backend.tf`, which is how documentation drifts apart.
 
 ## Usage
 
