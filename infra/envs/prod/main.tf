@@ -52,7 +52,21 @@ module "aks" {
 # at this address, so having it there meant a cluster rebuild silently took
 # the site's DNS target with it - and prevent_destroy is no defence, since it
 # only guards destroys that Terraform initiates. See #65.
-resource "azurerm_public_ip" "ingress_app_rg" {
+#
+# Lives here rather than in modules/networking because its role assignment
+# below needs the cluster identity, while module.aks already consumes
+# networking's subnet - moving the pair in would make networking depend on aks
+# and aks on networking. It's a seam between the two modules, which is what a
+# composition root is for.
+
+# Renamed from ingress_app_rg, which only meant anything while the old
+# node-RG IP still existed. Safe to delete this block once applied.
+moved {
+  from = azurerm_public_ip.ingress_app_rg
+  to   = azurerm_public_ip.ingress
+}
+
+resource "azurerm_public_ip" "ingress" {
   name                = "pip-${var.name_prefix}-ingress"
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
@@ -83,7 +97,7 @@ resource "azurerm_public_ip" "ingress_app_rg" {
 # service-controller ever reports it cannot find the IP, widening this scope
 # to azurerm_resource_group.this.id is the first thing to try.
 resource "azurerm_role_assignment" "ingress_pip_network_contributor" {
-  scope                = azurerm_public_ip.ingress_app_rg.id
+  scope                = azurerm_public_ip.ingress.id
   role_definition_name = "Network Contributor"
   principal_id         = module.aks.cluster_identity_principal_id
 }

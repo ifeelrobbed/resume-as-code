@@ -21,5 +21,5 @@ output "oidc_issuer_url" {
 # BOOTSTRAP.md's DNS section.
 output "ingress_public_ip" {
   description = "Static public IP for ingress-nginx, in the app resource group"
-  value       = azurerm_public_ip.ingress_app_rg.ip_address
+  value       = azurerm_public_ip.ingress.ip_address
 }

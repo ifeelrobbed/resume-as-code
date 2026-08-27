@@ -22,7 +22,7 @@ spec:
           service:
             annotations:
               # Pin the Service to the static IP Terraform manages
-              # (infra/envs/prod, azurerm_public_ip.ingress_app_rg) instead
+              # (infra/envs/prod, azurerm_public_ip.ingress) instead
               # of letting the cloud-provider create/own an ephemeral one
               # tied to this Service's lifecycle. DNS (robertjcameron.com)
               # points at this address.
