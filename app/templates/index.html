@@ -93,9 +93,11 @@
           </svg>
         </div>
       </div>
+      {{if .GrafanaDashboardURL}}
       <div style="margin-top:16px;">
         <a href="{{.GrafanaDashboardURL}}" class="btn btn-secondary mono" data-engagement="grafana-dashboard">View live dashboard &#8599;</a>
       </div>
+      {{end}}
     </section>
 
     <section class="section">

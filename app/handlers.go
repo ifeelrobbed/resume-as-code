@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -157,10 +158,22 @@ func sparklinePoints(values []float64) string {
 // grafanaDashboardURL is the Grafana Public Dashboard share link for the
 // resume-site dashboard (manifests/platform/kube-prometheus-stack/
 // resume-site-dashboard.yaml) - enabled once, manually, via Grafana's API
-// (not provisionable as code, see the persistence PR). The access token is
-// tied to that dashboard's fixed uid ("resume-site"), so it survives
-// re-provisioning the dashboard JSON but not a share being disabled/re-created.
-const grafanaDashboardURL = "https://grafana.robertjcameron.com/public-dashboards/992c146423e540d5a3c1bcf70f71c6ee"
+// (not provisionable as code, see BOOTSTRAP.md). The access token is tied to
+// that dashboard's fixed uid ("resume-site"), so it survives re-provisioning
+// the dashboard JSON but not a share being disabled/re-created - and not
+// losing Grafana's database, which a cluster rebuild does.
+//
+// Read from the environment rather than compiled in for exactly that reason:
+// as a constant, regenerating the share meant editing Go, rebuilding an image
+// and redeploying. As an env var set in the Deployment it's a one-line
+// manifest change, which is what makes a rebuild a runbook step rather than a
+// development task (#65).
+//
+// No fallback value. An unset variable hides the link (see index.html) rather
+// than rendering one that 404s - a dead "View live dashboard" button is worse
+// than no button, and this is the same reasoning as the "as of" timestamp on
+// the visitor count: don't show something that looks live when it isn't.
+var grafanaDashboardURL = os.Getenv("GRAFANA_DASHBOARD_URL")
 
 // IndexData is what templates/index.html renders. Recent is the homepage's
 // condensed preview - just the two most recent Experience entries.
