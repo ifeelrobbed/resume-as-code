@@ -62,6 +62,32 @@ resource "azurerm_storage_account" "app" {
       days = 30
     }
   }
+
+  # Nothing here uses Azure Files. This block exists to work around a
+  # create-time ordering problem, and is only worth keeping while that holds.
+  #
+  # Azure materialises the fileServices/default sub-resource lazily - measured
+  # at roughly 2m15s after account creation on this account. The provider reads
+  # share_properties from it as part of the create, so with
+  # features.storage.data_plane_available = false (which skips the readiness
+  # wait that would otherwise cover the gap) the read 404s and the apply fails
+  # with the account already created and now tainted.
+  #
+  # Declaring share_properties makes the provider PUT the sub-resource rather
+  # than only GET it, and a PUT creates it. Ordering problem gone.
+  #
+  # The wait cannot simply be re-enabled: with data_plane_available at its
+  # default the provider builds Blob/Queue/Table clients via listKeys, and the
+  # plan identity holds Reader precisely so a pull request cannot read data.
+  # See the provider block in main.tf.
+  #
+  # Values are Azure's own defaults, so this asserts the current state rather
+  # than changing behaviour.
+  share_properties {
+    retention_policy {
+      days = 7
+    }
+  }
 }
 
 # Addressed by storage_account_id rather than storage_account_name, so the
