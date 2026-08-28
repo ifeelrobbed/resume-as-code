@@ -32,6 +32,14 @@ spec:
       # polls Prometheus over the network. Without this, the pod still gets a
       # mounted API token it has no use for, which is only ever a liability.
       automountServiceAccountToken: false
+      # 30s is the Kubernetes default, stated explicitly because the app's
+      # shutdown depends on it: on SIGTERM it fails readiness for 6s so this
+      # pod leaves the Service's endpoints, then waits up to 20s for in-flight
+      # requests. 26s total, so lowering this below ~30 means kubelet SIGKILLs
+      # mid-drain and the graceful shutdown achieves nothing. The constants are
+      # drainDelay and shutdownTimeout in app/main.go, and a test asserts their
+      # sum fits inside this number.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: resume-site
           # Rewritten automatically on every merge to master by app-ci's
@@ -93,9 +101,18 @@ spec:
               # Grafana and Alertmanager - which is the whole point of setting
               # it. Re-measure before assuming this number still fits.
               memory: 64Mi
+          # Two endpoints on purpose. /readyz answers "should this pod receive
+          # traffic?" and flips to 503 on SIGTERM so kubelet removes it from
+          # the Service's endpoints before the server stops accepting.
+          # /status answers "is this process alive?" and stays 200 throughout
+          # the drain - a pod leaving deliberately is not a wedged process to
+          # restart. One shared endpoint has to answer one of those wrongly.
+          #
+          # periodSeconds here is what drainDelay in app/main.go is sized
+          # against: 6s covers one 5s readiness period plus slack.
           readinessProbe:
             httpGet:
-              path: /status
+              path: /readyz
               port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5

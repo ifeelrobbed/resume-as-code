@@ -222,7 +222,40 @@ func resumeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// statusHandler is informational, and backs the liveness probe: it answers 200
+// for as long as the process is alive, including while draining. Liveness asks
+// "is this process wedged, restart it?", and a draining pod is neither wedged
+// nor a restart candidate - it is leaving on purpose. Conflating that with
+// readiness is what makes a drain look like a failure.
+//
+// draining is still reported, so curling this endpoint answers "why is that pod
+// unready?" without needing cluster access.
 func statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q}`, buildTime, time.Since(startTime).Round(time.Second).String())
+	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q,"draining":%t}`,
+		buildTime, time.Since(startTime).Round(time.Second).String(), draining.Load())
+}
+
+// readyzHandler backs the readiness probe, and nothing else. Once draining is
+// set (see main.go) it answers 503, which is what makes kubelet pull this pod
+// out of the Service's endpoints before connections stop being accepted -
+// without that, requests routed in the instant before SIGTERM still land on a
+// closing server.
+//
+// Deliberately separate from statusHandler rather than sharing one endpoint.
+// Readiness and liveness answer different questions, and a single endpoint has
+// to answer both wrongly during a drain: either it stays 200 and the pod keeps
+// receiving traffic it is about to stop serving, or it returns 503 and reports
+// a live process as dead.
+//
+// Plain text rather than JSON: kubelet reads only the status code, and the
+// body exists for whoever curls it by hand.
+func readyzHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if draining.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintln(w, "draining")
+		return
+	}
+	fmt.Fprintln(w, "ok")
 }
