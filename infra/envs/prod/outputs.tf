@@ -23,3 +23,22 @@ output "ingress_public_ip" {
   description = "Static public IP for ingress-nginx, in the app resource group"
   value       = azurerm_public_ip.ingress.ip_address
 }
+
+# Consumed by the resume-site ServiceAccount's
+# azure.workload.identity/client-id annotation. Read it from here rather than
+# copying the GUID around - a cluster rebuild or a re-created identity changes
+# it, and a stale value fails as an opaque token-exchange error.
+output "app_identity_client_id" {
+  description = "Client ID of the app's user-assigned identity, for the ServiceAccount annotation"
+  value       = azurerm_user_assigned_identity.app.client_id
+}
+
+output "app_storage_account_name" {
+  description = "Storage account holding the visitor count blob"
+  value       = azurerm_storage_account.app.name
+}
+
+output "app_stats_container_name" {
+  description = "Container within the app storage account"
+  value       = azurerm_storage_container.stats.name
+}
