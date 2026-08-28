@@ -75,12 +75,14 @@ resource "azurerm_user_assigned_identity" "app" {
 # rebuild regenerates this with the new issuer URL instead of leaving a
 # credential that silently no longer matches.
 resource "azurerm_federated_identity_credential" "app" {
-  name                = "resume-site-serviceaccount"
-  resource_group_name = azurerm_resource_group.this.name
-  parent_id           = azurerm_user_assigned_identity.app.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = module.aks.oidc_issuer_url
-  subject             = "system:serviceaccount:resume-site:resume-site"
+  name = "resume-site-serviceaccount"
+  # No resource_group_name: the provider deprecated it ("no longer used, will
+  # be removed in the next major version") since parent_id already identifies
+  # the identity this belongs to. Flagged as a warning on the first apply.
+  parent_id = azurerm_user_assigned_identity.app.id
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = module.aks.oidc_issuer_url
+  subject   = "system:serviceaccount:resume-site:resume-site"
 }
 
 # Scoped to the container, not the account - the app has no business reading or
