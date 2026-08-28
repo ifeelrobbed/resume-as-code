@@ -94,6 +94,13 @@ func main() {
 	// The pollers take the same context so they stop with the process rather
 	// than logging failures into a shutdown that's already underway.
 	go pollVisitorCount(ctx)
+	// The durable counter runs alongside the Prometheus-derived one for now.
+	// Nothing displays it yet - it is exposed on /status so its value can be
+	// compared against the Prometheus number before the homepage switches over
+	// (#75, step 6).
+	if store := visitorStoreFromEnv(); store != nil {
+		go pollVisitors(ctx, &visitors, store)
+	}
 	go pollSparkline(ctx, "request rate", requestRateQuery, &requestRate)
 	go pollSparkline(ctx, "p95 latency", p95LatencyQuery, &p95Latency)
 	go pollSparkline(ctx, "error rate", errorRateQuery, &errorRate)

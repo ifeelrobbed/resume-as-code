@@ -232,8 +232,15 @@ func resumeHandler(w http.ResponseWriter, r *http.Request) {
 // unready?" without needing cluster access.
 func statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q,"draining":%t}`,
-		buildTime, time.Since(startTime).Round(time.Second).String(), draining.Load())
+
+	// visitorsDurable is here to be compared against the Prometheus-derived
+	// number on the homepage before that number switches source (#75, step 6).
+	// visitorsLoaded distinguishes "genuinely zero" from "not read yet", which
+	// is the difference between a real count and a placeholder.
+	count, loaded, _ := visitors.get()
+
+	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q,"draining":%t,"visitorsDurable":%d,"visitorsLoaded":%t}`,
+		buildTime, time.Since(startTime).Round(time.Second).String(), draining.Load(), count, loaded)
 }
 
 // readyzHandler backs the readiness probe, and nothing else. Once draining is
