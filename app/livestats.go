@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -173,11 +174,15 @@ func (c *visitorCountCache) set(v int64) {
 // polling immediately rather than waiting out the first tick. A failed
 // query leaves the last-known value in place - staleness shows up on the
 // page as an old "as of" time rather than a hidden fallback value.
-func pollVisitorCount() {
+func pollVisitorCount(ctx context.Context) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for {
 		refreshVisitorCount(client, prometheusURL, &visitorCount)
-		time.Sleep(pollInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pollInterval):
+		}
 	}
 }
 
@@ -255,11 +260,15 @@ func (c *sparklineCache) set(points []float64) {
 // rather than every pollInterval - the window barely moves minute to
 // minute, so there's nothing to gain from polling as often as the
 // single-value visitor count. name is just for the log line on failure.
-func pollSparkline(name, query string, cache *sparklineCache) {
+func pollSparkline(ctx context.Context, name, query string, cache *sparklineCache) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for {
 		refreshSparkline(client, prometheusURL, name, query, cache)
-		time.Sleep(sparklinePollInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(sparklinePollInterval):
+		}
 	}
 }
 

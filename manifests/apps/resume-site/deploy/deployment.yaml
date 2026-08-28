@@ -32,6 +32,14 @@ spec:
       # polls Prometheus over the network. Without this, the pod still gets a
       # mounted API token it has no use for, which is only ever a liability.
       automountServiceAccountToken: false
+      # 30s is the Kubernetes default, stated explicitly because the app's
+      # shutdown depends on it: on SIGTERM it fails readiness for 6s so this
+      # pod leaves the Service's endpoints, then waits up to 20s for in-flight
+      # requests. 26s total, so lowering this below ~30 means kubelet SIGKILLs
+      # mid-drain and the graceful shutdown achieves nothing. The constants are
+      # drainDelay and shutdownTimeout in app/main.go, and a test asserts their
+      # sum fits inside this number.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: resume-site
           # Rewritten automatically on every merge to master by app-ci's

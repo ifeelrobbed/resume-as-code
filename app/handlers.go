@@ -222,7 +222,19 @@ func resumeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// statusHandler backs both the readiness and liveness probes. Once draining is
+// set (see main.go), it answers 503 so kubelet takes this pod out of the
+// Service's endpoints before connections stop being accepted - without that,
+// requests routed in the instant before SIGTERM still land on a closing server.
+//
+// Liveness reads the same endpoint, but a failing liveness probe during
+// termination is harmless: kubelet stops acting on probes once a pod is
+// shutting down, and the process is exiting regardless.
 func statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q}`, buildTime, time.Since(startTime).Round(time.Second).String())
+	if draining.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	fmt.Fprintf(w, `{"buildTime":%q,"uptime":%q,"draining":%t}`,
+		buildTime, time.Since(startTime).Round(time.Second).String(), draining.Load())
 }
