@@ -76,13 +76,15 @@ resource "azurerm_user_assigned_identity" "app" {
 # credential that silently no longer matches.
 resource "azurerm_federated_identity_credential" "app" {
   name = "resume-site-serviceaccount"
-  # No resource_group_name: the provider deprecated it ("no longer used, will
-  # be removed in the next major version") since parent_id already identifies
-  # the identity this belongs to. Flagged as a warning on the first apply.
-  parent_id = azurerm_user_assigned_identity.app.id
-  audience  = ["api://AzureADTokenExchange"]
-  issuer    = module.aks.oidc_issuer_url
-  subject   = "system:serviceaccount:resume-site:resume-site"
+  # Neither resource_group_name nor parent_id: the provider deprecated both and
+  # removes them in v5. resource_group_name is "no longer used" outright, and
+  # parent_id was renamed to user_assigned_identity_id. Both surfaced as plan
+  # warnings rather than errors, so they would have gone unnoticed until a
+  # major-version bump broke the apply.
+  user_assigned_identity_id = azurerm_user_assigned_identity.app.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = module.aks.oidc_issuer_url
+  subject                   = "system:serviceaccount:resume-site:resume-site"
 }
 
 # Scoped to the container, not the account - the app has no business reading or
