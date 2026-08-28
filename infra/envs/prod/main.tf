@@ -20,10 +20,11 @@ provider "azurerm" {
       # Reader excludes listKeys - so every `terraform plan` touching a storage
       # account 403s on an account it is only meant to describe.
       #
-      # It also skips the post-create data-plane readiness poll, which is what
-      # this flag was originally added for. That reason went away when the app
-      # account moved to shared_access_key_enabled = true; this one did not,
-      # and removing the flag broke plan immediately (#75).
+      # It also skips the post-create data-plane readiness poll. That poll
+      # authenticates with a shared key, so it fails outright on an account
+      # with shared_access_key_enabled = false - which the app storage account
+      # is. Both reasons independently require this flag; removing it broke
+      # plan immediately when tried (#75).
       #
       # Nothing here needs data-plane access from Terraform:
       # azurerm_storage_container is addressed by storage_account_id, which

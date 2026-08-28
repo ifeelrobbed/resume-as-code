@@ -16,7 +16,16 @@
 # internet-facing app's write credential in the same account as Terraform state;
 # a second Standard LRS account costs essentially nothing.
 resource "azurerm_storage_account" "app" {
-  name                     = "resumesiteappdata"
+  # Not resumesiteappdata. That name went through four failed create attempts,
+  # and the failure turned out to be the recycled name itself: destroying a
+  # storage account and immediately recreating it under the same name leaves
+  # Azure not exposing the fileServices/default sub-resource, which the
+  # provider reads during create. Each failure tainted the resource, so the
+  # next apply destroyed and recreated the same name and reproduced it exactly.
+  #
+  # Confirmed in a throwaway resource group: same-name recreate fails, fresh
+  # name succeeds, with identical configuration.
+  name                     = "resumesitestats"
   resource_group_name      = azurerm_resource_group.this.name
   location                 = var.location
   account_tier             = "Standard"
@@ -27,29 +36,16 @@ resource "azurerm_storage_account" "app" {
   https_traffic_only_enabled      = true
   allow_nested_items_to_be_public = false
 
-  # Keys are enabled, reluctantly. shared_access_key_enabled = false is the
-  # better posture and was tried first; it is incompatible with azurerm 4.81.0
-  # (the latest 4.x) in a way no flag works around.
+  # No account keys at all - Entra ID only. The app authenticates with a
+  # federated token it exchanges at runtime, so there is no credential to
+  # store, rotate, or leak. That is the point of the exercise rather than
+  # incidental hardening.
   #
-  # Azure does not expose the fileServices/default sub-resource on an account
-  # with shared key auth disabled - confirmed directly: it 404s with keys off
-  # and appears the moment they are on. The provider reads share_properties for
-  # every storage account regardless of whether Files is used, so the apply
-  # fails on a sub-resource this account will never have.
-  #
-  # What that costs: account keys exist, so anyone able to call listKeys - which
-  # Contributor on this resource group includes - can read the blob without a
-  # role assignment. In practice that is the CI apply identity, which can
-  # already create and delete every resource here.
-  #
-  # What it does NOT cost, and this is the part that matters: the app still
-  # authenticates with a federated token exchanged at runtime. No key is stored
-  # in the image, a Secret, or this repo. Enabling keys does not mean anything
-  # uses them.
-  #
-  # Revisit when the provider stops reading share_properties unconditionally,
-  # or on a v5 bump.
-  shared_access_key_enabled = true
+  # This was briefly reverted to true, on the theory that disabling keys was
+  # what stopped Azure exposing fileServices/default. That was wrong - the
+  # cause was the recycled account name above. Verified in a throwaway resource
+  # group: a fresh account with keys disabled creates cleanly.
+  shared_access_key_enabled = false
 
   blob_properties {
     # The blob this account exists to hold IS the visitor count. Losing it
@@ -63,31 +59,6 @@ resource "azurerm_storage_account" "app" {
     }
   }
 
-  # Nothing here uses Azure Files. This block exists to work around a
-  # create-time ordering problem, and is only worth keeping while that holds.
-  #
-  # Azure materialises the fileServices/default sub-resource lazily - measured
-  # at roughly 2m15s after account creation on this account. The provider reads
-  # share_properties from it as part of the create, so with
-  # features.storage.data_plane_available = false (which skips the readiness
-  # wait that would otherwise cover the gap) the read 404s and the apply fails
-  # with the account already created and now tainted.
-  #
-  # Declaring share_properties makes the provider PUT the sub-resource rather
-  # than only GET it, and a PUT creates it. Ordering problem gone.
-  #
-  # The wait cannot simply be re-enabled: with data_plane_available at its
-  # default the provider builds Blob/Queue/Table clients via listKeys, and the
-  # plan identity holds Reader precisely so a pull request cannot read data.
-  # See the provider block in main.tf.
-  #
-  # Values are Azure's own defaults, so this asserts the current state rather
-  # than changing behaviour.
-  share_properties {
-    retention_policy {
-      days = 7
-    }
-  }
 }
 
 # Addressed by storage_account_id rather than storage_account_name, so the
