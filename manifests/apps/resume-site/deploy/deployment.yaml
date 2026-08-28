@@ -12,7 +12,15 @@ spec:
     metadata:
       labels:
         app: resume-site
+        # Opts this pod into the workload identity webhook, which injects a
+        # projected token at /var/run/secrets/azure/tokens plus the AZURE_*
+        # environment the SDK reads. Without it the ServiceAccount annotation
+        # is inert and the pod has no way to authenticate to Azure.
+        azure.workload.identity/use: "true"
     spec:
+      # Paired with the label above and the annotation on this ServiceAccount;
+      # all three are required for the token exchange (#75).
+      serviceAccountName: resume-site
       # The image already runs as distroless' nonroot user, but nothing here
       # said so - a base image change could have flipped that silently, with
       # no signal. Declaring it makes non-root the cluster's guarantee rather
@@ -72,6 +80,20 @@ spec:
             # so leaving this blank during a recovery is a safe state.
             - name: GRAFANA_DASHBOARD_URL
               value: "https://grafana.robertjcameron.com/public-dashboards/992c146423e540d5a3c1bcf70f71c6ee"
+            # Where the durable visitor count lives (#75). Read from Terraform
+            # rather than invented here:
+            #   terraform -chdir=infra/envs/prod output -raw app_storage_account_name
+            #   terraform -chdir=infra/envs/prod output -raw app_stats_container_name
+            #
+            # Inert until the app reads them in the next step. Set now so that
+            # change is app code and tests only, with no manifest edit riding
+            # along with it.
+            - name: VISITOR_STORAGE_ACCOUNT
+              value: "resumesitestats"
+            - name: VISITOR_STORAGE_CONTAINER
+              value: "stats"
+            - name: VISITOR_BLOB_NAME
+              value: "visitors.json"
           # No capabilities are needed: the binary listens on 8080, above the
           # privileged-port boundary, and touches nothing else the kernel
           # gates. Verified by running this exact image under --read-only
