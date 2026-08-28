@@ -20,12 +20,15 @@ var gitRevision = "dev"
 
 var startTime = time.Now()
 
-// draining flips on SIGTERM and makes statusHandler answer 503, which is what
-// the readiness probe reads. Kubernetes removes a pod from Service endpoints
-// and sends SIGTERM at roughly the same moment, so a server that stops
-// accepting the instant it's signalled still drops requests that were routed
-// to it microseconds earlier. Failing readiness first, then waiting for that
-// removal to propagate, is what actually closes that window.
+// draining flips on SIGTERM and makes readyzHandler answer 503. Kubernetes
+// removes a pod from Service endpoints and sends SIGTERM at roughly the same
+// moment, so a server that stops accepting the instant it's signalled still
+// drops requests that were routed to it microseconds earlier. Failing readiness
+// first, then waiting for that removal to propagate, is what actually closes
+// that window.
+//
+// Only readiness reads this. Liveness reads /status, which stays 200 while
+// draining - a pod on its way out is not a wedged process to restart.
 var draining atomic.Bool
 
 // Timeouts, none of which net/http applies by default. Without
@@ -76,6 +79,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("GET /{$}", instrument("index", indexHandler))
 	mux.HandleFunc("GET /resume", instrument("resume", resumeHandler))
 	mux.HandleFunc("GET /status", instrument("status", statusHandler))
+	mux.HandleFunc("GET /readyz", instrument("readyz", readyzHandler))
 	mux.HandleFunc("POST /engagement/click", instrument("engagement-click", engagementClickHandler))
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("GET /static/", http.StripPrefix("/static/", noCacheHeaders(http.FileServer(http.Dir("static")))))

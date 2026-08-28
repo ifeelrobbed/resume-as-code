@@ -101,9 +101,18 @@ spec:
               # Grafana and Alertmanager - which is the whole point of setting
               # it. Re-measure before assuming this number still fits.
               memory: 64Mi
+          # Two endpoints on purpose. /readyz answers "should this pod receive
+          # traffic?" and flips to 503 on SIGTERM so kubelet removes it from
+          # the Service's endpoints before the server stops accepting.
+          # /status answers "is this process alive?" and stays 200 throughout
+          # the drain - a pod leaving deliberately is not a wedged process to
+          # restart. One shared endpoint has to answer one of those wrongly.
+          #
+          # periodSeconds here is what drainDelay in app/main.go is sized
+          # against: 6s covers one 5s readiness period plus slack.
           readinessProbe:
             httpGet:
-              path: /status
+              path: /readyz
               port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5

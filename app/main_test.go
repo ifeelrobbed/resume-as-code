@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,7 +31,14 @@ func callStatus(t *testing.T) (int, map[string]any) {
 	return rec.Code, body
 }
 
-func TestStatusReadyByDefault(t *testing.T) {
+func callReadyz(t *testing.T) (int, string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	readyzHandler(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	return rec.Code, strings.TrimSpace(rec.Body.String())
+}
+
+func TestStatusOKByDefault(t *testing.T) {
 	setDraining(t, false)
 
 	code, body := callStatus(t)
@@ -45,23 +53,59 @@ func TestStatusReadyByDefault(t *testing.T) {
 	}
 }
 
-// The behaviour the drain depends on: kubelet reads this endpoint for
-// readiness, and a 503 is what removes the pod from Service endpoints before
-// the server stops accepting connections.
-func TestStatusFailsReadinessWhileDraining(t *testing.T) {
+// The reason /readyz exists. Liveness reads /status, so it must keep answering
+// 200 through the drain - a pod leaving deliberately is not a wedged process,
+// and a 503 here would report a healthy server as dead.
+func TestStatusStaysHealthyWhileDraining(t *testing.T) {
 	setDraining(t, true)
 
 	code, body := callStatus(t)
-	if code != http.StatusServiceUnavailable {
-		t.Errorf("got status %d while draining, want 503 - readiness would not fail and the pod would keep receiving traffic", code)
+	if code != http.StatusOK {
+		t.Errorf("got status %d while draining, want 200 - liveness reads this endpoint", code)
 	}
+	// Still reports the drain, so curling it explains why a pod is unready.
 	if body["draining"] != true {
 		t.Errorf("got draining=%v, want true", body["draining"])
 	}
-	// Still valid JSON with the usual fields, so the endpoint stays useful for
-	// a human checking why a pod is unready.
-	if body["buildTime"] == nil || body["uptime"] == nil {
-		t.Errorf("status lost a field while draining: %v", body)
+}
+
+func TestReadyzOKByDefault(t *testing.T) {
+	setDraining(t, false)
+
+	code, body := callReadyz(t)
+	if code != http.StatusOK {
+		t.Errorf("got status %d, want 200", code)
+	}
+	if body != "ok" {
+		t.Errorf("got body %q, want %q", body, "ok")
+	}
+}
+
+// The behaviour the whole drain depends on: kubelet reads this for readiness,
+// and the 503 is what removes the pod from Service endpoints before the server
+// stops accepting connections.
+func TestReadyzFailsWhileDraining(t *testing.T) {
+	setDraining(t, true)
+
+	code, body := callReadyz(t)
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("got status %d while draining, want 503 - readiness would not fail and the pod would keep receiving traffic", code)
+	}
+	if body != "draining" {
+		t.Errorf("got body %q, want %q", body, "draining")
+	}
+}
+
+// Readiness and liveness must disagree during a drain. If they ever return the
+// same status, one of the two probes is wired to the wrong endpoint.
+func TestProbesDivergeWhileDraining(t *testing.T) {
+	setDraining(t, true)
+
+	statusCode, _ := callStatus(t)
+	readyzCode, _ := callReadyz(t)
+
+	if statusCode == readyzCode {
+		t.Errorf("both probes returned %d while draining; readiness must fail (503) while liveness stays healthy (200)", statusCode)
 	}
 }
 
