@@ -10,7 +10,27 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    storage {
+      # After creating a storage account the provider polls its Blob data
+      # plane to confirm it is reachable. That poll authenticates with a
+      # shared key, so on an account with shared_access_key_enabled = false it
+      # returns 403 KeyBasedAuthenticationNotPermitted - the account is created
+      # and healthy, but the apply fails on the health check (hit for real on
+      # resumesiteappdata, #75).
+      #
+      # Nothing here needs the data plane: azurerm_storage_container is
+      # addressed by storage_account_id, which goes through Resource Manager.
+      # The app reaches blobs at runtime via workload identity, not Terraform.
+      #
+      # The alternative, storage_use_azuread = true, would make the poll use
+      # Entra ID instead - but the apply identity holds Contributor, which
+      # grants no data-plane access, so it would need a Storage Blob Data role
+      # granted out of band. That trades a provider flag for another permanent
+      # entry in BOOTSTRAP.md, to enable a health check we don't want.
+      data_plane_available = false
+    }
+  }
 }
 
 resource "azurerm_resource_group" "this" {
