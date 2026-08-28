@@ -10,7 +10,28 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    storage {
+      # Load-bearing, for a reason that is easy to misread as obsolete.
+      #
+      # By default the provider builds Blob/Queue/Table data-plane clients for
+      # every storage account, and does so by calling listKeys. The plan
+      # identity holds Reader precisely so a pull request cannot read data, and
+      # Reader excludes listKeys - so every `terraform plan` touching a storage
+      # account 403s on an account it is only meant to describe.
+      #
+      # It also skips the post-create data-plane readiness poll, which is what
+      # this flag was originally added for. That reason went away when the app
+      # account moved to shared_access_key_enabled = true; this one did not,
+      # and removing the flag broke plan immediately (#75).
+      #
+      # Nothing here needs data-plane access from Terraform:
+      # azurerm_storage_container is addressed by storage_account_id, which
+      # goes through Resource Manager, and the app reaches blobs at runtime via
+      # workload identity.
+      data_plane_available = false
+    }
+  }
 }
 
 resource "azurerm_resource_group" "this" {
