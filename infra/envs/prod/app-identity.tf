@@ -27,14 +27,29 @@ resource "azurerm_storage_account" "app" {
   https_traffic_only_enabled      = true
   allow_nested_items_to_be_public = false
 
-  # No account keys at all - Entra ID only. This is the point of the exercise:
-  # the app authenticates with a federated token it exchanges at runtime, so
-  # there is no credential to store, rotate, or leak. It also means Terraform
-  # itself cannot fall back to a key, which is why the container below is
-  # addressed by storage_account_id (Resource Manager) rather than
-  # storage_account_name (data plane, which would need a key or a data-plane
-  # role for the apply identity).
-  shared_access_key_enabled = false
+  # Keys are enabled, reluctantly. shared_access_key_enabled = false is the
+  # better posture and was tried first; it is incompatible with azurerm 4.81.0
+  # (the latest 4.x) in a way no flag works around.
+  #
+  # Azure does not expose the fileServices/default sub-resource on an account
+  # with shared key auth disabled - confirmed directly: it 404s with keys off
+  # and appears the moment they are on. The provider reads share_properties for
+  # every storage account regardless of whether Files is used, so the apply
+  # fails on a sub-resource this account will never have.
+  #
+  # What that costs: account keys exist, so anyone able to call listKeys - which
+  # Contributor on this resource group includes - can read the blob without a
+  # role assignment. In practice that is the CI apply identity, which can
+  # already create and delete every resource here.
+  #
+  # What it does NOT cost, and this is the part that matters: the app still
+  # authenticates with a federated token exchanged at runtime. No key is stored
+  # in the image, a Secret, or this repo. Enabling keys does not mean anything
+  # uses them.
+  #
+  # Revisit when the provider stops reading share_properties unconditionally,
+  # or on a v5 bump.
+  shared_access_key_enabled = true
 
   blob_properties {
     # The blob this account exists to hold IS the visitor count. Losing it
@@ -49,6 +64,10 @@ resource "azurerm_storage_account" "app" {
   }
 }
 
+# Addressed by storage_account_id rather than storage_account_name, so the
+# provider goes through Resource Manager instead of the Blob data plane. Kept
+# that way even though keys are now enabled: it is one less thing depending on
+# data-plane reachability from a CI runner.
 resource "azurerm_storage_container" "stats" {
   name                  = "stats"
   storage_account_id    = azurerm_storage_account.app.id

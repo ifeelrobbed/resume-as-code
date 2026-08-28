@@ -12,22 +12,23 @@ terraform {
 provider "azurerm" {
   features {
     storage {
-      # After creating a storage account the provider polls its Blob data
-      # plane to confirm it is reachable. That poll authenticates with a
-      # shared key, so on an account with shared_access_key_enabled = false it
-      # returns 403 KeyBasedAuthenticationNotPermitted - the account is created
-      # and healthy, but the apply fails on the health check (hit for real on
-      # resumesiteappdata, #75).
+      # Load-bearing, for a reason that is easy to misread as obsolete.
       #
-      # Nothing here needs the data plane: azurerm_storage_container is
-      # addressed by storage_account_id, which goes through Resource Manager.
-      # The app reaches blobs at runtime via workload identity, not Terraform.
+      # By default the provider builds Blob/Queue/Table data-plane clients for
+      # every storage account, and does so by calling listKeys. The plan
+      # identity holds Reader precisely so a pull request cannot read data, and
+      # Reader excludes listKeys - so every `terraform plan` touching a storage
+      # account 403s on an account it is only meant to describe.
       #
-      # The alternative, storage_use_azuread = true, would make the poll use
-      # Entra ID instead - but the apply identity holds Contributor, which
-      # grants no data-plane access, so it would need a Storage Blob Data role
-      # granted out of band. That trades a provider flag for another permanent
-      # entry in BOOTSTRAP.md, to enable a health check we don't want.
+      # It also skips the post-create data-plane readiness poll, which is what
+      # this flag was originally added for. That reason went away when the app
+      # account moved to shared_access_key_enabled = true; this one did not,
+      # and removing the flag broke plan immediately (#75).
+      #
+      # Nothing here needs data-plane access from Terraform:
+      # azurerm_storage_container is addressed by storage_account_id, which
+      # goes through Resource Manager, and the app reaches blobs at runtime via
+      # workload identity.
       data_plane_available = false
     }
   }
