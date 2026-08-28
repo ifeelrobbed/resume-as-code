@@ -118,5 +118,12 @@ func instrument(name string, h http.HandlerFunc) http.HandlerFunc {
 		}
 		httpRequestsTotal.WithLabelValues(name, strconv.Itoa(sw.status)).Inc()
 		httpRequestDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
+
+		// The durable visitor count (#75) increments here rather than inside
+		// indexHandler so that "is this a real visit?" - including the blackbox
+		// exclusion just above - is decided in exactly one place.
+		if name == "index" {
+			visitors.inc()
+		}
 	}
 }
