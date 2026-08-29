@@ -74,3 +74,64 @@ func TestIndexNeverRendersAnEmptyDashboardHref(t *testing.T) {
 		t.Error("page contains an empty href")
 	}
 }
+
+// setVisitors points the package counter at a known state and restores it, so
+// display tests don't depend on whatever else ran first.
+func setVisitors(t *testing.T, count int64, loaded bool) {
+	t.Helper()
+	visitors.mu.Lock()
+	prevTotal, prevDelta, prevLoaded := visitors.total, visitors.delta, visitors.loaded
+	visitors.total, visitors.delta, visitors.loaded = count, 0, loaded
+	visitors.mu.Unlock()
+
+	t.Cleanup(func() {
+		visitors.mu.Lock()
+		visitors.total, visitors.delta, visitors.loaded = prevTotal, prevDelta, prevLoaded
+		visitors.mu.Unlock()
+	})
+}
+
+func TestHomepageShowsVisitorCountWhenLoaded(t *testing.T) {
+	setVisitors(t, 4102, true)
+
+	code, body := renderIndex(t, "")
+	if code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+	if !strings.Contains(body, "4102") {
+		t.Error("visitor count is missing from the page")
+	}
+	// The label lost its window qualifier when the source stopped being a
+	// rolling 15-day Prometheus query.
+	if strings.Contains(body, "visitors (15d)") {
+		t.Error("stale '(15d)' label - the count is no longer a rolling window")
+	}
+}
+
+// The case the dash exists for: nothing has been read from blob storage yet,
+// and a confident 0 would be indistinguishable from a genuinely empty count.
+func TestHomepageShowsDashWhenCountNotYetLoaded(t *testing.T) {
+	setVisitors(t, 0, false)
+
+	code, body := renderIndex(t, "")
+	if code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+	if !strings.Contains(body, "—") {
+		t.Error("expected a dash placeholder while the count is unknown")
+	}
+	if strings.Contains(body, `class="stat-value">0<`) {
+		t.Error("rendered a literal 0 for an unread count - that is the failure this guards against")
+	}
+}
+
+// A real zero must still render as 0 once it has actually been read, otherwise
+// the dash would hide a true value.
+func TestHomepageShowsZeroWhenGenuinelyZero(t *testing.T) {
+	setVisitors(t, 0, true)
+
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, `class="stat-value">0<`) {
+		t.Error("a loaded zero should render as 0, not as a dash")
+	}
+}

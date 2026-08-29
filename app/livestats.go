@@ -16,24 +16,12 @@ import (
 	"time"
 )
 
-// increase(), not a raw sum() of the counter, because
-// resume_http_requests_total lives in the app's own process memory and
-// resets to 0 on every pod restart/redeploy - increase() detects each
-// reset and adds the pre-reset total back in. The [15d] window matches
-// Prometheus's configured retention (kube-prometheus-stack/application.yaml)
-// - it's a rolling 15-day count, not all-time, since anything Prometheus
-// itself has already rolled off can't be recovered.
-const visitorCountQuery = `sum(increase(resume_http_requests_total{handler="index"}[15d]))`
-
-const pollInterval = 30 * time.Second
-
-// Scoped to handler="index" deliberately - unlike visitorCountQuery's
-// increase() (which only cares about total visits), a live rate needs to
-// exclude the readiness/liveness probes kubelet fires at /status every
-// 5s/15s. Those aren't excluded from resume_http_requests_total the way
-// the blackbox exporter's traffic is (see instrument() in metrics.go) -
-// confirmed live that they alone produce a flat ~0.267 req/s baseline
-// that would otherwise swamp real traffic in the sparkline.
+// Scoped to handler="index" deliberately: a live rate has to exclude the
+// readiness/liveness probes kubelet fires at /readyz and /status every 5s/15s.
+// Those aren't excluded from resume_http_requests_total the way the blackbox
+// exporter's traffic is (see instrument() in metrics.go) - confirmed live that
+// they alone produce a flat ~0.267 req/s baseline that would otherwise swamp
+// real traffic in the sparkline.
 const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[5m]))`
 
 // Same handler="index" scoping, and for the same reason: resume_http_
@@ -145,90 +133,6 @@ func sampleValue(pair [2]interface{}) (float64, error) {
 	return f, nil
 }
 
-// visitorCount is served from Prometheus rather than tracked in-process -
-// the app's own counters reset on every pod restart/redeploy, but
-// Prometheus persists resume_http_requests_total on a PVC, so reading it
-// back is what makes the homepage number survive a deploy.
-type visitorCountCache struct {
-	mu        sync.RWMutex
-	value     int64
-	updatedAt time.Time
-}
-
-var visitorCount visitorCountCache
-
-func (c *visitorCountCache) get() (int64, time.Time) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.value, c.updatedAt
-}
-
-func (c *visitorCountCache) set(v int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.value = v
-	c.updatedAt = time.Now()
-}
-
-// pollVisitorCount refreshes the cache from Prometheus on a fixed interval,
-// polling immediately rather than waiting out the first tick. A failed
-// query leaves the last-known value in place - staleness shows up on the
-// page as an old "as of" time rather than a hidden fallback value.
-func pollVisitorCount(ctx context.Context) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	for {
-		refreshVisitorCount(client, prometheusURL, &visitorCount)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(pollInterval):
-		}
-	}
-}
-
-// refreshVisitorCount runs a single poll. Split out from pollVisitorCount's
-// loop so that the promise in that comment - a failed query must never
-// overwrite a good cached value - is directly testable rather than trapped
-// inside an infinite loop.
-func refreshVisitorCount(client *http.Client, baseURL string, cache *visitorCountCache) {
-	v, err := queryVisitorCount(client, baseURL)
-	switch {
-	case errors.Is(err, errNoData):
-		log.Printf("visitor count poll: no matching series yet, keeping last value")
-	case err != nil:
-		log.Printf("visitor count poll: %v (keeping last value)", err)
-	default:
-		cache.set(v)
-	}
-}
-
-type prometheusQueryResponse struct {
-	prometheusEnvelope
-	Data struct {
-		Result []struct {
-			Value [2]interface{} `json:"value"`
-		} `json:"result"`
-	} `json:"data"`
-}
-
-func queryVisitorCount(client *http.Client, baseURL string) (int64, error) {
-	u := baseURL + "/api/v1/query?query=" + url.QueryEscape(visitorCountQuery)
-
-	var pr prometheusQueryResponse
-	if err := getPrometheusJSON(client, u, &pr); err != nil {
-		return 0, err
-	}
-	if len(pr.Data.Result) == 0 {
-		return 0, errNoData
-	}
-
-	f, err := sampleValue(pr.Data.Result[0].Value)
-	if err != nil {
-		return 0, err
-	}
-	return int64(f), nil
-}
-
 // sparklineCache holds a 24h window of samples for a homepage sparkline -
 // a slice, not a single value, since this backs a chart rather than a
 // single stat. Shared by both requestRate and p95Latency below, since both
@@ -256,10 +160,9 @@ func (c *sparklineCache) set(points []float64) {
 	c.updatedAt = time.Now()
 }
 
-// pollSparkline refreshes cache's 24h window from query every few minutes
-// rather than every pollInterval - the window barely moves minute to
-// minute, so there's nothing to gain from polling as often as the
-// single-value visitor count. name is just for the log line on failure.
+// pollSparkline refreshes cache's 24h window from query every few minutes - the
+// window barely moves minute to minute, so there's nothing to gain from polling
+// harder. name is just for the log line on failure.
 func pollSparkline(ctx context.Context, name, query string, cache *sparklineCache) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	for {

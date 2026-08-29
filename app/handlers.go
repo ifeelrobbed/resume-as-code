@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,12 +42,12 @@ var templateFuncs = template.FuncMap{
 var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("templates/*.html"))
 
 // Stats is the live data every page can show - visitor count (and when it
-// was last confirmed via Prometheus, as a bare unix timestamp so the
+// was last confirmed against blob storage, as a bare unix timestamp so the
 // template can render it in the visitor's own timezone), process uptime,
 // build time (see main.go's buildTime, injected via -ldflags), and 24h
 // request-rate/p95-latency/error-rate sparklines.
 type Stats struct {
-	VisitorCount            int64
+	VisitorCount            string
 	VisitorCountUpdatedUnix int64
 	Uptime                  string
 	LastDeploy              string
@@ -59,7 +60,22 @@ type Stats struct {
 }
 
 func stats() Stats {
-	count, updatedAt := visitorCount.get()
+	// Read from the durable blob-backed counter rather than Prometheus (#75).
+	// The Prometheus version was increase(...[15d]) - a rolling window that
+	// reset to zero whenever the TSDB was lost, and an extrapolated estimate
+	// rather than a count: measured 34 against an exact 37 over the same
+	// period. This is the exact number and it survives a cluster rebuild.
+	rawCount, loaded, updatedAt := visitors.get()
+
+	// A dash until the first successful read, never a zero. An unread count and
+	// a genuinely empty one look identical otherwise, and a confident 0 on a
+	// site whose point is that its numbers are real is the worse failure.
+	// Formatted as a string for the same reason as the three stats below.
+	count := "—"
+	if loaded {
+		count = strconv.FormatInt(rawCount, 10)
+	}
+
 	var updatedUnix int64
 	if !updatedAt.IsZero() {
 		updatedUnix = updatedAt.Unix()

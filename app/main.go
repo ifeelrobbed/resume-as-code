@@ -93,11 +93,9 @@ func main() {
 
 	// The pollers take the same context so they stop with the process rather
 	// than logging failures into a shutdown that's already underway.
-	go pollVisitorCount(ctx)
-	// The durable counter runs alongside the Prometheus-derived one for now.
-	// Nothing displays it yet - it is exposed on /status so its value can be
-	// compared against the Prometheus number before the homepage switches over
-	// (#75, step 6).
+	// The visitor count now comes from blob storage rather than Prometheus, so
+	// it survives a TSDB loss and is an exact count rather than an
+	// extrapolation (#75).
 	if store := visitorStoreFromEnv(); store != nil {
 		go pollVisitors(ctx, &visitors, store)
 	}

@@ -142,34 +142,6 @@ func TestServerTimeoutsAreSet(t *testing.T) {
 	}
 }
 
-// Pollers must stop when the context is cancelled rather than outliving the
-// server and logging failures into a shutdown already in progress.
-func TestPollersStopOnContextCancel(t *testing.T) {
-	srv := prometheusStub(t, http.StatusServiceUnavailable, "down")
-
-	original := prometheusURL
-	prometheusURL = srv
-	t.Cleanup(func() { prometheusURL = original })
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		pollVisitorCount(ctx)
-		close(done)
-	}()
-
-	// One poll runs immediately, then the loop waits on ctx or the interval.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("pollVisitorCount did not return after context cancellation")
-	}
-}
-
 func TestSparklinePollerStopsOnContextCancel(t *testing.T) {
 	srv := prometheusStub(t, http.StatusServiceUnavailable, "down")
 
