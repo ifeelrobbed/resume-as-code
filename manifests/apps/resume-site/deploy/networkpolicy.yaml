@@ -1,0 +1,90 @@
+# Default-deny ingress for the resume-site namespace, plus the two sources that
+# legitimately reach the app (#58). Enforced by Calico - see
+# infra/modules/aks/main.tf. Before that engine existed these objects would have
+# been accepted by the API server and enforced by nobody, which is exactly the
+# gap this issue was opened for.
+#
+# Ingress only, deliberately. The app's egress is DNS, Prometheus, and Azure
+# Blob Storage over the public internet; a default-deny egress ending in "allow
+# 443 to anywhere" restricts almost nothing while adding a way to silently break
+# the visitor counter. Revisit if egress ever becomes worth constraining
+# properly.
+#
+# Nothing here accommodates kubelet probes, and nothing needs to. Verified
+# empirically on this cluster before writing these: under a default-deny ingress
+# policy a pod with readiness and liveness probes stayed ready with zero
+# restarts across ~15 probe cycles, while pod-to-pod traffic to the same port
+# was dropped. Calico exempts host-to-pod traffic. Both halves of that test
+# mattered - probes passing on their own would only have proved the policy
+# wasn't being enforced.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: resume-site
+spec:
+  # Every pod in the namespace. Today that is one Deployment; writing it as a
+  # blanket selector means anything added later is denied by default rather
+  # than silently exempt.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Real visitor traffic: DNS -> Azure LB -> ingress-nginx -> here. The blackbox
+# exporter's uptime probe arrives this way too, since it targets the public URL
+# rather than the pod, so it needs no rule of its own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-nginx
+  namespace: resume-site
+spec:
+  podSelector:
+    matchLabels:
+      app: resume-site
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Matched by namespace rather than by pod label. A podSelector would be
+        # tighter, but it would bind this policy to labels the ingress-nginx
+        # chart owns and can change on any version bump - and the failure mode
+        # is the site going dark with nothing pointing here. Only the
+        # controller runs in that namespace, so the practical difference is
+        # small. Same reasoning as matching the blackbox exporter's user agent
+        # by prefix rather than exact version (app/metrics.go).
+        #
+        # kubernetes.io/metadata.name is set and maintained by Kubernetes on
+        # every namespace, so it cannot drift the way an applied label can.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        # The container port, not the Service port. The Service maps 80 -> 8080
+        # but policy is evaluated against the pod.
+        - protocol: TCP
+          port: 8080
+---
+# Prometheus scrapes /metrics directly on the pod, via the ServiceMonitor in
+# manifests/platform/kube-prometheus-stack. Without this rule the scrape is
+# dropped, up{job="resume-site"} goes to 0, and ResumeSiteMetricsUnreachable
+# fires - which is at least a loud failure rather than a silent one.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: resume-site
+spec:
+  podSelector:
+    matchLabels:
+      app: resume-site
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
