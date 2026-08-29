@@ -43,7 +43,7 @@ flow as any other change in the repo.
 Deliberately excluded to avoid the resources that made a prior landing-zone
 attempt expensive: Azure Firewall, Application Gateway, Azure Monitor
 managed Prometheus/Grafana, a Bastion host. Everything those would have
-done is instead handled by NSGs + NetworkPolicies, ingress-nginx +
+done is instead handled by NSGs + Calico-enforced NetworkPolicies, ingress-nginx +
 cert-manager, self-hosted Prometheus/Grafana, and `az aks command invoke`
 for admin access.
 

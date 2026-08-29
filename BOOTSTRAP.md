@@ -223,6 +223,38 @@ it afterwards.
 
 ---
 
+## 9. Calico network policy engine
+
+**Why not in code:** Terraform can express the end state but not reach it.
+Changing `network_policy` from `"none"` to `"calico"` is a ForceNew on
+`azurerm_kubernetes_cluster`, so Terraform's route to enabling it is destroying
+and recreating the cluster. Azure supports the change in place; the provider
+does not model it.
+
+```bash
+az aks update --resource-group rg-resume-site-prod \
+  --name aks-resume-site-prod --network-policy calico
+```
+
+This reimages the node pool. `max_surge` is declared as `10%` on the node pool
+(`infra/modules/aks/main.tf`), which rounds up to one surge node, so AKS brings
+a replacement up before recycling the existing one - expect a few minutes of
+disruption rather than an outage.
+
+Run it **before** adding `network_policy = "calico"` to the module. Once
+reality matches the config there is no diff, and therefore no replacement. Add
+it first and the next plan proposes destroying the cluster.
+
+**On a rebuilt cluster this is not needed.** A cluster created from scratch has
+`network_policy = "calico"` in its config from the start, so Terraform sets it
+at creation. This entry exists only because an existing cluster had to be
+migrated.
+
+**Enabling it starts enforcing policies that already exist.** Six shipped by the
+Argo CD chart were inert until this point. They are the chart's own and written
+for enforcement, but that is worth knowing before flipping it on a cluster that
+has been running without one.
+
 ## Recovery: rebuilding from a lost cluster
 
 The sections above are what has to exist. This is the order to do it in when

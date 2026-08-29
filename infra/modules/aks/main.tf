@@ -48,6 +48,18 @@ resource "azurerm_kubernetes_cluster" "this" {
   network_profile {
     network_plugin    = "kubenet" # cheaper/simpler than Azure CNI at this scale
     load_balancer_sku = "standard"
+
+    # Calico is the only policy engine kubenet supports - Azure NPM and Cilium
+    # both require Azure CNI. Without it, NetworkPolicy objects are accepted by
+    # the API server and enforced by nobody, which is how ARCHITECTURE.md came
+    # to describe a control that did not exist (#58), and how six policies
+    # shipped by the Argo CD chart sat inert for weeks.
+    #
+    # Enabled out of band with `az aks update --network-policy calico` before
+    # this line was added, deliberately. Changing network_policy from "none"
+    # forces a new cluster; changing it from nothing to a value that already
+    # matches reality is a no-op. See BOOTSTRAP.md.
+    network_policy = "calico"
   }
 
   # Enabled now, unused until phase 2's Key Vault CSI driver / workload
