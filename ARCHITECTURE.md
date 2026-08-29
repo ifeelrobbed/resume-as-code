@@ -30,7 +30,12 @@ DNS). Argo CD owns everything running inside the cluster. Nothing is
 
 Running a full blown landing zone for this site is not feasible from a cost perpective. Explicitly avoided:
 
-- **Azure Firewall** - NSGs + Kubernetes NetworkPolicies instead.
+- **Azure Firewall** - NSGs at the subnet edge plus Kubernetes
+  NetworkPolicies inside the cluster, enforced by Calico (the only engine
+  kubenet supports). Worth noting this line was aspirational when first
+  written and only became true with #58: no policies existed and no engine
+  was installed, so anything written would have been accepted by the API
+  server and enforced by nobody.
 - **Application Gateway** - ingress-nginx + cert-manager (Let's Encrypt).
 - **Azure Managed Prometheus/Grafana** - self-hosted in-cluster instead
   (also more demo-worthy: it's the observability stack, self-run).
