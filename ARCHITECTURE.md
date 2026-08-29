@@ -42,6 +42,18 @@ Running a full blown landing zone for this site is not feasible from a cost perp
 - **Spot pricing** - not used. Azure doesn't allow the default/system
   node pool to run at Spot priority, and this module deliberately has
   only the one pool, so the node runs on-demand.
+- **Statically provisioned PVC disks** - the Prometheus and Grafana disks
+  are left where `managed-csi` puts them, in the AKS node resource group,
+  which means a cluster rebuild destroys them. Pinning them to the app
+  resource group instead would cost the same (~$1.20/month either way -
+  it is the same disk) but adds a static PersistentVolume, a Helm values
+  override, a widened RBAC condition and another recovery step, to
+  protect 15 days of metrics on a self-healing rolling window.
+
+  Accepted deliberately: snapshot before a *planned* rebuild (see
+  BOOTSTRAP.md), and accept the loss for an unplanned one. What made this
+  affordable was moving the visitor count out of Prometheus (#75) - it
+  was the only number on the site whose loss was actually visible.
 
 Rough floor: well under $50/month at MVP scale.
 
@@ -76,8 +88,18 @@ well-known "Argo CD manages itself" pattern. From then on:
   automatically; enable Argo CD's CRD-management flag or apply CRDs as a
   pre-sync step.
 - **Rollback** = `git revert`, same as any other workload.
-- **Disaster recovery** = re-run the bootstrap script once against a
-  fresh cluster; the root app-of-apps Application takes over from there.
+- **Disaster recovery** = `terraform apply`, then re-run the bootstrap
+  script; the root app-of-apps takes over from there. Two manual steps
+  remain (the Discord webhook secret, and re-enabling the Grafana share),
+  and two things are lost: Prometheus history and Grafana's database. The
+  ordered runbook is in [`BOOTSTRAP.md`](BOOTSTRAP.md#recovery-rebuilding-from-a-lost-cluster).
+
+  This bullet used to claim recovery was just the bootstrap script. That
+  was true when written and quietly stopped being true - at one point a
+  rebuild would also have destroyed the site's DNS target and required a
+  code change to restore the Grafana link. Both are fixed; the lesson
+  that a documented claim can rot without anything failing is the reason
+  this now points at a runbook rather than restating itself.
 
 ## App stack
 

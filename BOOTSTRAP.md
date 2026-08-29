@@ -223,6 +223,92 @@ it afterwards.
 
 ---
 
+## Recovery: rebuilding from a lost cluster
+
+The sections above are what has to exist. This is the order to do it in when
+the cluster is gone, and what does not come back.
+
+Never tested end to end. The steps follow from how the pieces are wired, not
+from having watched it work, and the first real run should be treated as a
+drill rather than a routine.
+
+### What survives
+
+Everything in `rg-resume-site-prod`, which Azure does not delete with the
+cluster:
+
+- **The ingress public IP.** DNS keeps resolving; no Cloudflare change needed.
+  This was not true until it was moved out of the node resource group (#66).
+- **The app's user-assigned identity**, so the client ID hardcoded in
+  `ServiceAccount/resume-site` stays correct.
+- **The visitor count blob.** The homepage number is not rebuilt from
+  Prometheus and does not reset (#75).
+- The VNet, subnet and NSG.
+
+**Terraform state** survives too, in `rg-resume-site-tfstate` - a separate
+resource group in this same subscription, not a separate subscription. Losing
+the subscription is a different and much worse scenario than losing the
+cluster, and this runbook does not cover it.
+
+Outside Azure entirely: this repository, and the Cloudflare zone.
+
+### What does not
+
+Both live on disks in the AKS-managed node resource group, which Azure deletes
+along with the cluster:
+
+| Lost | Consequence |
+| --- | --- |
+| Prometheus TSDB (15Gi) | Up to 15 days of metrics. Accepted - see ARCHITECTURE.md. |
+| Grafana database (1Gi) | The Public Dashboard share, and Grafana's admin password. |
+
+Let's Encrypt certificates are reissued automatically. The production rate limit
+is 5 certificates per domain per week, which a repeated failed rebuild could
+burn through.
+
+### Before a *planned* rebuild
+
+Snapshot the Prometheus disk, so the metric history is recoverable if it turns
+out to matter:
+
+```bash
+az snapshot create -g rg-resume-site-prod -n prometheus-tsdb-pre-rebuild \
+  --source "$(az disk list -g rg-resume-site-prod-aks-nodes \
+    --query "[?diskSizeGB==\`15\`].id" -o tsv)"
+```
+
+Delete it once the rebuild is verified; it bills on used data while it exists.
+
+### Order
+
+1. **`terraform apply`.** State survives, so this recreates the cluster and
+   reconciles everything around it. Three things fix themselves here, all
+   because they read from the aks module rather than being hardcoded: the
+   federated credential picks up the new OIDC issuer URL, the cluster
+   identity's Network Contributor grant on the ingress IP is recreated for the
+   new principal, and the node resource group is repopulated.
+2. **`./bootstrap/install-argocd.sh`.** Installs Argo CD and applies
+   `manifests/root.yaml`; the app-of-apps takes over from there.
+3. **Recreate the Discord webhook secret** - section 6. Alertmanager will run
+   without it but every notification fails.
+4. **Re-enable the Grafana Public Dashboard share** - section 7. This produces a
+   *new* token, so update `GRAFANA_DASHBOARD_URL` in
+   `manifests/apps/resume-site/deploy/deployment.yaml` and merge. A one-line
+   manifest change rather than a code change, since #75 moved it out of the Go
+   source. Leaving it stale is safe in the meantime: the homepage hides the
+   link rather than rendering a dead one.
+5. **Verify**, in roughly this order:
+   - `kubectl get certificate -A` - all `READY=True`
+   - `curl -s https://robertjcameron.com/status` - `visitorsLoaded: true` and a
+     non-zero count, which proves the blob survived and the workload identity
+     token exchange still works against the new cluster's issuer
+   - both hostnames serve, and the Grafana dashboard link resolves
+
+### Not required
+
+Repointing DNS, recreating the storage account or identity, and re-granting the
+apply identity's RBAC Administrator condition. All of those outlive the cluster.
+
 ## Deliberately not here
 
 Terraform owns everything in Azure above the cluster boundary; Argo CD owns
