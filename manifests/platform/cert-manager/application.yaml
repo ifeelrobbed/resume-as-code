@@ -29,15 +29,38 @@ spec:
   # cainjector patches the webhook configs' caBundle out-of-band after
   # install; that will never match the chart's own templated value, so
   # without this it perpetually (and falsely) reports OutOfSync.
+  # Two controllers legitimately rewrite these objects after Argo CD applies
+  # them, so both edits have to be ignored or this Application sits
+  # permanently OutOfSync (#92).
+  #
+  # cainjector patches caBundle out of band; that will never match the chart's
+  # templated value.
+  #
+  # AKS patches namespaceSelector, injecting matchExpressions that exclude
+  # control-plane and AKS-managed namespaces so third-party webhooks cannot
+  # intercept them. Ignored by field manager rather than by path: the manager
+  # is named in managedFields (admissionsenforcer), so this covers whatever it
+  # touches now and later, and - unlike a jsonPointer at
+  # /webhooks/0/namespaceSelector - it does not also blind us to cert-manager's
+  # own disable-validation expression changing.
+  #
+  # Only cert-manager needed this, even though AKS injects into
+  # kube-prometheus-stack's webhook too: that chart renders namespaceSelector
+  # as null, so there is nothing for Argo CD to compare against. The drift
+  # appears only when the chart specifies the field at all.
   ignoreDifferences:
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+      managedFieldsManagers:
+        - admissionsenforcer
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+      managedFieldsManagers:
+        - admissionsenforcer
   syncPolicy:
     automated:
       prune: true
