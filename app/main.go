@@ -99,6 +99,7 @@ func main() {
 	if store := visitorStoreFromEnv(); store != nil {
 		go pollVisitors(ctx, &visitors, store)
 	}
+	go pollArgoSync(ctx, &argoSync)
 	go pollSparkline(ctx, "request rate", requestRateQuery, &requestRate)
 	go pollSparkline(ctx, "p95 latency", p95LatencyQuery, &p95Latency)
 	go pollSparkline(ctx, "error rate", errorRateQuery, &errorRate)
