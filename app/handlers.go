@@ -49,6 +49,7 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 type Stats struct {
 	VisitorCount            string
 	VisitorCountUpdatedUnix int64
+	VisitorSparkline        string
 	Uptime                  string
 	LastDeploy              string
 	SyncStatus              string
@@ -81,6 +82,26 @@ func stats() Stats {
 	var updatedUnix int64
 	if !updatedAt.IsZero() {
 		updatedUnix = updatedAt.Unix()
+	}
+
+	// Visits per day, from the same blob as the number above it, so the line
+	// and the count can never tell different stories (#44). Replaces a
+	// hardcoded polyline that described no data at all.
+	//
+	// Two points minimum. sparklinePoints() renders a single value as a flat
+	// centered line, which here would be indistinguishable from a real week of
+	// identical traffic - and this history starts accumulating from the first
+	// flush after deploy, so one point is genuinely the early state rather
+	// than a hypothetical. An empty string renders an empty polyline, which
+	// draws nothing, which is the honest answer until there is a trend to show.
+	history := visitors.dailyHistory()
+	visitorSparkline := ""
+	if len(history) >= 2 {
+		daily := make([]float64, len(history))
+		for i, d := range history {
+			daily[i] = float64(d.Count)
+		}
+		visitorSparkline = sparklinePoints(daily)
 	}
 
 	// Argo CD sync state across every Application, not just this one - the
@@ -119,6 +140,7 @@ func stats() Stats {
 	return Stats{
 		VisitorCount:            count,
 		VisitorCountUpdatedUnix: updatedUnix,
+		VisitorSparkline:        visitorSparkline,
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
 		SyncStatus:              syncStatus,
