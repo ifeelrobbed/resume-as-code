@@ -1,6 +1,16 @@
 # Recording/alerting rules as code (see ARCHITECTURE.md's repo layout and
 # Phase 2 roadmap) - synced by root's second source (manifests/root.yaml),
-# separately from manifests/. namespace: resume-site is just for
+# separately from manifests/.
+#
+# Argo CD's path is promql/rules, not promql/, so that promql/tests can hold
+# promtool unit tests next to what they test. Those are plain YAML with no
+# apiVersion/kind: syncing them would fail to apply and leave root permanently
+# OutOfSync, which resume-site-alerts.yaml's ArgoApplicationOutOfSync would
+# then fire on. Pointing both Argo CD and kubeconform at the narrower path is
+# what keeps that from being possible, rather than an exclude pattern that has
+# to stay correct in two places.
+#
+# namespace: resume-site is just for
 # organization/RBAC scoping: ruleNamespaceSelector: {} (see
 # manifests/platform/kube-prometheus-stack/application.yaml) already
 # matches PrometheusRules in every namespace, so unlike a ServiceMonitor's
