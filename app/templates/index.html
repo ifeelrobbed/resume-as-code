@@ -63,7 +63,7 @@
         </div>
         <div class="stat">
           <p class="stat-label">sync</p>
-          <p class="stat-sync"><span class="pulse-dot"></span>Synced &middot; Healthy</p>
+          <p class="stat-sync{{if not .Stats.SyncAllHealthy}} degraded{{end}}"><span class="pulse-dot"></span>{{.Stats.SyncStatus}}</p>
         </div>
       </div>
     </section>

@@ -235,3 +235,113 @@ func queryRange(client *http.Client, baseURL, query string) ([]float64, error) {
 	}
 	return points, nil
 }
+
+// Argo CD sync state for the homepage's sync panel (#43). Replaces a hardcoded
+// "Synced - Healthy" that had been displayed since launch regardless of what
+// the cluster was actually doing.
+//
+// Two counts rather than one query returning labels: argocd_app_info carries
+// sync_status and health_status as labels, so reading it directly would need a
+// parse path that inspects `metric` rather than `value`. Counting server-side
+// keeps this on the same scalar path everything else uses, and Prometheus is
+// better at aggregation than this app is.
+//
+// "or vector(0)" matters on the healthy query. count() over a filter that
+// matches nothing returns an empty vector, not zero - so without it, every
+// application being unhealthy would look identical to Prometheus being
+// unreachable. The total query deliberately has no such fallback: no data there
+// genuinely means the state is unknown, and the panel shows a dash.
+const (
+	argoAppsTotalQuery   = `count(argocd_app_info)`
+	argoAppsHealthyQuery = `count(argocd_app_info{sync_status="Synced",health_status="Healthy"}) or vector(0)`
+)
+
+const argoPollInterval = 30 * time.Second
+
+// argoSyncCache holds the last successfully read counts. Like the sparkline
+// caches, a failed poll leaves the previous values in place rather than
+// blanking the panel on one bad scrape.
+type argoSyncCache struct {
+	mu      sync.RWMutex
+	total   int
+	healthy int
+	loaded  bool
+	updated time.Time
+}
+
+var argoSync argoSyncCache
+
+func (c *argoSyncCache) get() (total, healthy int, loaded bool, updated time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.total, c.healthy, c.loaded, c.updated
+}
+
+func (c *argoSyncCache) set(total, healthy int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.total, c.healthy, c.loaded, c.updated = total, healthy, true, time.Now()
+}
+
+func pollArgoSync(ctx context.Context, cache *argoSyncCache) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	for {
+		refreshArgoSync(client, prometheusURL, cache)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(argoPollInterval):
+		}
+	}
+}
+
+func refreshArgoSync(client *http.Client, baseURL string, cache *argoSyncCache) {
+	total, err := queryScalar(client, baseURL, argoAppsTotalQuery)
+	if err != nil {
+		log.Printf("argocd sync poll: total: %v (keeping last value)", err)
+		return
+	}
+	healthy, err := queryScalar(client, baseURL, argoAppsHealthyQuery)
+	if err != nil {
+		log.Printf("argocd sync poll: healthy: %v (keeping last value)", err)
+		return
+	}
+	// Both counts come from separate round trips, so they can straddle a change
+	// in state. Clamping keeps the panel from ever reading "8/7" if an
+	// Application is added between the two queries.
+	if healthy > total {
+		healthy = total
+	}
+	cache.set(int(total), int(healthy))
+}
+
+// prometheusInstantResponse is the shape of an instant query - a vector of
+// series each with a single [timestamp, value] sample, unlike query_range's
+// matrix of many.
+type prometheusInstantResponse struct {
+	prometheusEnvelope
+	Data struct {
+		Result []struct {
+			Value [2]interface{} `json:"value"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+// queryScalar runs an instant query expected to produce exactly one value.
+// More than one series means the query is wrong - aggregating was the caller's
+// job - and that is worth failing on rather than silently taking the first.
+func queryScalar(client *http.Client, baseURL, query string) (float64, error) {
+	u := baseURL + "/api/v1/query?query=" + url.QueryEscape(query)
+
+	var pr prometheusInstantResponse
+	if err := getPrometheusJSON(client, u, &pr); err != nil {
+		return 0, err
+	}
+	if len(pr.Data.Result) == 0 {
+		return 0, errNoData
+	}
+	if len(pr.Data.Result) > 1 {
+		return 0, fmt.Errorf("expected a single series, got %d - the query needs aggregating", len(pr.Data.Result))
+	}
+	return sampleValue(pr.Data.Result[0].Value)
+}

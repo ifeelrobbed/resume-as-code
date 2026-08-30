@@ -135,3 +135,76 @@ func TestHomepageShowsZeroWhenGenuinelyZero(t *testing.T) {
 		t.Error("a loaded zero should render as 0, not as a dash")
 	}
 }
+
+// setArgoSync points the package cache at a known state and restores it.
+func setArgoSync(t *testing.T, total, healthy int, loaded bool) {
+	t.Helper()
+	argoSync.mu.Lock()
+	prev := struct {
+		total, healthy int
+		loaded         bool
+	}{argoSync.total, argoSync.healthy, argoSync.loaded}
+	argoSync.total, argoSync.healthy, argoSync.loaded = total, healthy, loaded
+	argoSync.mu.Unlock()
+
+	t.Cleanup(func() {
+		argoSync.mu.Lock()
+		argoSync.total, argoSync.healthy, argoSync.loaded = prev.total, prev.healthy, prev.loaded
+		argoSync.mu.Unlock()
+	})
+}
+
+func TestSyncPanelShowsAllHealthy(t *testing.T) {
+	setArgoSync(t, 7, 7, true)
+
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, "7/7 Synced") {
+		t.Error("expected the aggregate count on the page")
+	}
+	if strings.Contains(body, "stat-sync degraded") {
+		t.Error("marked degraded while everything is healthy")
+	}
+	// The placeholder this replaced must not survive anywhere.
+	if strings.Contains(body, `<span class="pulse-dot"></span>Synced &middot; Healthy`) {
+		t.Error("hardcoded placeholder still present")
+	}
+}
+
+// The case the panel exists for: something has drifted and the page says so
+// rather than continuing to claim health.
+func TestSyncPanelShowsDegraded(t *testing.T) {
+	setArgoSync(t, 7, 6, true)
+
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, "6/7 Synced") {
+		t.Error("expected the degraded count on the page")
+	}
+	if !strings.Contains(body, "stat-sync degraded") {
+		t.Error("not marked degraded - the dot would stay green beside a 6/7")
+	}
+}
+
+// Nothing read from Prometheus yet must not render as healthy. Same reasoning
+// as the visitor count's dash: unknown and fine look identical otherwise.
+func TestSyncPanelShowsDashWhenUnknown(t *testing.T) {
+	setArgoSync(t, 0, 0, false)
+
+	_, body := renderIndex(t, "")
+	if strings.Contains(body, "Synced ·") {
+		t.Error("claimed sync state before reading any")
+	}
+	if !strings.Contains(body, "stat-sync degraded") {
+		t.Error("unknown state should not render as green")
+	}
+}
+
+// A cluster with zero Applications is not "all healthy" - 0/0 must not be
+// treated as success by the total>0 guard.
+func TestSyncPanelZeroApplicationsIsNotHealthy(t *testing.T) {
+	setArgoSync(t, 0, 0, true)
+
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, "stat-sync degraded") {
+		t.Error("0/0 should not render as healthy")
+	}
+}

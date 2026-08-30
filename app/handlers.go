@@ -51,6 +51,8 @@ type Stats struct {
 	VisitorCountUpdatedUnix int64
 	Uptime                  string
 	LastDeploy              string
+	SyncStatus              string
+	SyncAllHealthy          bool
 	RequestRateCurrent      string
 	RequestRateSparkline    string
 	P95LatencyCurrent       string
@@ -81,6 +83,18 @@ func stats() Stats {
 		updatedUnix = updatedAt.Unix()
 	}
 
+	// Argo CD sync state across every Application, not just this one - the
+	// panel is about whether the platform is converged, and the app-of-apps is
+	// the more interesting thing to show. Degrades to a dash rather than
+	// claiming health it hasn't confirmed (#43).
+	argoTotal, argoHealthy, argoLoaded, _ := argoSync.get()
+	syncStatus := "—"
+	syncAllHealthy := false
+	if argoLoaded {
+		syncStatus = fmt.Sprintf("%d/%d Synced · Healthy", argoHealthy, argoTotal)
+		syncAllHealthy = argoHealthy == argoTotal && argoTotal > 0
+	}
+
 	ratePoints, _ := requestRate.get()
 	rateCurrent := "—"
 	if len(ratePoints) > 0 {
@@ -107,6 +121,8 @@ func stats() Stats {
 		VisitorCountUpdatedUnix: updatedUnix,
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
+		SyncStatus:              syncStatus,
+		SyncAllHealthy:          syncAllHealthy,
 		RequestRateCurrent:      rateCurrent,
 		RequestRateSparkline:    sparklinePoints(ratePoints),
 		P95LatencyCurrent:       latencyCurrent,
