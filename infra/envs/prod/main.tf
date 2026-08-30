@@ -81,13 +81,6 @@ module "aks" {
 # and aks on networking. It's a seam between the two modules, which is what a
 # composition root is for.
 
-# Renamed from ingress_app_rg, which only meant anything while the old
-# node-RG IP still existed. Safe to delete this block once applied.
-moved {
-  from = azurerm_public_ip.ingress_app_rg
-  to   = azurerm_public_ip.ingress
-}
-
 resource "azurerm_public_ip" "ingress" {
   name                = "pip-${var.name_prefix}-ingress"
   resource_group_name = azurerm_resource_group.this.name
