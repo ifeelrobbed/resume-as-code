@@ -74,7 +74,8 @@ resume-as-code/
 ├── controllers/     future Go controllers (phase 3), empty for now
 ├── infra/          Terraform: envs/prod wires modules/{networking,aks}
 ├── manifests/       everything Argo CD watches (platform, observability, apps)
-├── promql/          recording/alerting rules as code
+├── promql/rules/    recording/alerting rules as code (the only part Argo syncs)
+├── promql/tests/    promtool unit tests for those rules
 ├── bootstrap/        the one imperative script: installs Argo CD
 └── .github/workflows/ app-ci, terraform-plan/apply, manifests-lint
 ```

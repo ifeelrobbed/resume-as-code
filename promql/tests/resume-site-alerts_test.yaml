@@ -1,0 +1,174 @@
+# promtool unit tests for promql/rules/resume-site-alerts.yaml.
+# Run with `make promql-test` (part of `make check`).
+#
+# These exist because the Argo CD alerts below can't be validated against real
+# history: argocd_app_info only started being scraped on 2026-08-30 and has
+# never been anything but Synced/Healthy. Waiting for a real outage to find out
+# whether an alert works is not a test strategy.
+#
+# rule_files is a generated path - see the Makefile's promql-test target for
+# why the CRs get unwrapped before promtool sees them.
+rule_files:
+  - ../../.bin/promql-rules/resume-site-alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # --- baseline -----------------------------------------------------------
+  # The state the cluster is actually in. Worth asserting explicitly: an alert
+  # that fires during normal operation is worse than no alert, because it
+  # turns the Discord channel into something to ignore.
+  - interval: 1m
+    name: steady Synced/Healthy never alerts
+    input_series:
+      - series: 'argocd_app_info{name="resume-site", sync_status="Synced", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "1+0x30"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ArgoApplicationUnhealthy
+        exp_alerts: []
+
+  # --- sync ---------------------------------------------------------------
+  - interval: 1m
+    name: sustained OutOfSync fires, but not before 15m
+    input_series:
+      - series: 'argocd_app_info{name="resume-site", sync_status="OutOfSync", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "1+0x30"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: resume-site
+              sync_status: OutOfSync
+              health_status: Healthy
+              job: argocd-application-controller-metrics
+            exp_annotations:
+              summary: "Argo CD application resume-site has been OutOfSync for 15+ minutes"
+              description: "selfHeal is enabled and reconciliation runs every 120s, so drift normally clears in minutes - this long means the sync is failing, not pending. Check the application's conditions."
+
+  # The routine case: every image-bump merge leaves resume-site OutOfSync until
+  # the next reconcile. This is the churn the 15m threshold exists to ignore,
+  # so it is tested rather than assumed.
+  - interval: 1m
+    name: OutOfSync that self-heals within a reconcile never fires
+    input_series:
+      - series: 'argocd_app_info{name="resume-site", sync_status="OutOfSync", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "1+0x3 _x27"
+      - series: 'argocd_app_info{name="resume-site", sync_status="Synced", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "_x4 1+0x26"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts: []
+
+  # Pins the consequence documented in the rule's comment. sync_status is a
+  # label, so each transition is a different series and therefore a different
+  # alert - the for: clock restarts from zero. Here the application is broken
+  # for 24 unbroken minutes and nothing fires, because it never spends 15 of
+  # them in any one state. The rule comment claims this; this test is what
+  # makes it a verified fact rather than a belief about PromQL.
+  - interval: 1m
+    name: flapping between two bad sync states resets the for clock
+    input_series:
+      - series: 'argocd_app_info{name="resume-site", sync_status="OutOfSync", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "1+0x7 _x8 1+0x7"
+      - series: 'argocd_app_info{name="resume-site", sync_status="Unknown", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "_x8 1+0x7 _x8"
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts: []
+
+  # --- health -------------------------------------------------------------
+  - interval: 1m
+    name: Degraded fires
+    input_series:
+      - series: 'argocd_app_info{name="ingress-nginx", sync_status="Synced", health_status="Degraded", job="argocd-application-controller-metrics"}'
+        values: "1+0x30"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ArgoApplicationUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: ingress-nginx
+              sync_status: Synced
+              health_status: Degraded
+              job: argocd-application-controller-metrics
+            exp_annotations:
+              summary: "Argo CD application ingress-nginx is Degraded"
+              description: "The application's resources have been unhealthy for 15+ minutes - a rollout that never became ready, or resources that went missing underneath Argo CD."
+
+  # Missing is not in the exclusion list, so the negative matcher catches it.
+  # This is the case a positive Healthy|Degraded matcher would have missed.
+  - interval: 1m
+    name: Missing fires
+    input_series:
+      - series: 'argocd_app_info{name="cert-manager", sync_status="Synced", health_status="Missing", job="argocd-application-controller-metrics"}'
+        values: "1+0x30"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ArgoApplicationUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: cert-manager
+              sync_status: Synced
+              health_status: Missing
+              job: argocd-application-controller-metrics
+            exp_annotations:
+              summary: "Argo CD application cert-manager is Missing"
+              description: "The application's resources have been unhealthy for 15+ minutes - a rollout that never became ready, or resources that went missing underneath Argo CD."
+
+  # Progressing is what every healthy rollout looks like, and a slow one can
+  # sit there well past 15m without anything being wrong. Suspended is a
+  # deliberate act. Neither should page.
+  - interval: 1m
+    name: Progressing and Suspended are excluded even when sustained
+    input_series:
+      - series: 'argocd_app_info{name="resume-site", sync_status="Synced", health_status="Progressing", job="argocd-application-controller-metrics"}'
+        values: "1+0x40"
+      - series: 'argocd_app_info{name="kube-prometheus-stack", sync_status="Synced", health_status="Suspended", job="argocd-application-controller-metrics"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ArgoApplicationUnhealthy
+        exp_alerts: []
+
+  # --- the blind spot -----------------------------------------------------
+  # Both Argo rules alert on a series existing, so a controller that stops
+  # being scraped makes them silent - identical to healthy. This asserts both
+  # halves: the Argo alerts do go quiet, and PlatformComponentDown is what
+  # actually catches it.
+  - interval: 1m
+    name: controller down is caught by PlatformComponentDown, not by the Argo rules
+    input_series:
+      - series: 'up{job="argocd-application-controller-metrics", instance="10.244.1.23:8082"}'
+        values: "1+0x5 0+0x25"
+      - series: 'argocd_app_info{name="resume-site", sync_status="Synced", health_status="Healthy", job="argocd-application-controller-metrics"}'
+        values: "1+0x5 _x25"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ArgoApplicationOutOfSync
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ArgoApplicationUnhealthy
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: PlatformComponentDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: argocd-application-controller-metrics
+              instance: 10.244.1.23:8082
+            exp_annotations:
+              summary: "argocd-application-controller-metrics has been unscrapeable for 5+ minutes"
+              description: "Prometheus can't reach argocd-application-controller-metrics - either the pod is down or its ServiceMonitor/metrics endpoint broke."

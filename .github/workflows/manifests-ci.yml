@@ -59,4 +59,16 @@ jobs:
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -ignore-missing-schemas \
-            manifests promql
+            manifests promql/rules
+
+      # Unit-tests the alerting rules against synthetic series - see
+      # promql/tests/. Mirrors `make promql-test`; the version is pinned
+      # because an unpinned "latest" here would let a promtool release change
+      # what passes without anything in this repo changing.
+      - name: promtool test rules
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-amd64.tar.gz \
+            | tar xz --strip-components=1 prometheus-3.13.2.linux-amd64/promtool
+          sudo install -m 0755 promtool /usr/local/bin/promtool
+          make promql-test

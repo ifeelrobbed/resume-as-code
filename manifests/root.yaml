@@ -14,6 +14,12 @@ spec:
   # promql/ (see ARCHITECTURE.md's repo layout) - recording/alerting rules
   # as code, kept out of manifests/ since they're not infra/platform
   # config in the same sense everything else under manifests/ is.
+  #
+  # Pointed at promql/rules specifically, not promql/. Its sibling
+  # promql/tests holds promtool unit tests for these rules, which are plain
+  # YAML with no apiVersion/kind - syncing those would fail to apply and leave
+  # root permanently OutOfSync, which the ArgoApplicationOutOfSync alert
+  # defined in this very directory would then fire on.
   sources:
     - repoURL: https://github.com/ifeelrobbed/resume-as-code.git
       targetRevision: master
@@ -27,7 +33,7 @@ spec:
         exclude: "apps/*/deploy/**"
     - repoURL: https://github.com/ifeelrobbed/resume-as-code.git
       targetRevision: master
-      path: promql
+      path: promql/rules
       directory:
         recurse: true
   destination:
