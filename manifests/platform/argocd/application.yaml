@@ -20,6 +20,25 @@ spec:
         redis:
           serviceAccount:
             name: argocd-redis-secret-init
+
+        # Scrape the application-controller so sync state becomes queryable
+        # (#43). argocd_app_info carries sync_status and health_status as
+        # labels, one series per Application, which is what lets the site show
+        # real sync state instead of the hardcoded "Synced - Healthy" placeholder
+        # it has displayed since launch.
+        #
+        # The controller has always served these on port 8082 - metrics.enabled
+        # only controls whether a Service and ServiceMonitor get created, so
+        # nothing was collecting them.
+        #
+        # Controller only. The server and repo-server also expose metrics, but
+        # they are mostly request latencies nothing here queries, and #73 just
+        # spent effort removing series that nothing queried.
+        controller:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
