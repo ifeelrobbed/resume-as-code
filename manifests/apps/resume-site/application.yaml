@@ -13,6 +13,37 @@ spec:
     server: https://kubernetes.default.svc
     namespace: resume-site
   syncPolicy:
+    # The pod already carries the full restricted field set (#63), but that
+    # only declares the guarantee - deleting those fields would be accepted
+    # without complaint. These labels make the API server reject a
+    # non-compliant pod at admission, turning a convention into an enforced
+    # property (#64).
+    #
+    # Set here rather than in a Namespace manifest because CreateNamespace=true
+    # already makes Argo CD the thing that creates this namespace.
+    # managedNamespaceMetadata decorates exactly that namespace and keeps the
+    # labels reconciled; a separate Namespace object would mean two things
+    # both believing they own it.
+    #
+    # All three levels, which are not redundant - they apply to different
+    # resources. enforce is evaluated only on Pods, so a bad Deployment is
+    # accepted and only its pods fail, surfacing as a ReplicaSet event nobody
+    # is watching. warn and audit are evaluated on pod-controller resources
+    # too, so `kubectl apply` of a bad Deployment says so immediately.
+    #
+    # Version "latest" tracks the cluster's Kubernetes version rather than
+    # pinning. A future release tightening the standard could start rejecting
+    # this pod - which is the point. A static Go binary running as non-root
+    # with no capabilities has room to spare, and finding out is better than
+    # silently sitting on an older policy.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/enforce-version: latest
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/warn-version: latest
+        pod-security.kubernetes.io/audit: restricted
+        pod-security.kubernetes.io/audit-version: latest
     automated:
       prune: true
       selfHeal: true

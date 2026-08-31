@@ -131,6 +131,33 @@ experience teaser, and a link out. Full work history lives on a separate
 so the homepage should make its point immediately rather than require
 scrolling through the full resume first.
 
+## Pod security
+
+The `resume-site` namespace enforces the [restricted Pod Security
+Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+The API server rejects any pod there that runs as root, allows privilege
+escalation, keeps capabilities, or omits a seccomp profile. The labels are set
+via `managedNamespaceMetadata` on the Argo CD Application, so they are
+reconciled like any other config rather than applied by hand.
+
+The pod's `securityContext` and the namespace label do different jobs. The
+first describes what the workload asks for; the second is what makes the
+cluster refuse anything else. Without the label, deleting the security fields
+would be accepted silently.
+
+`enforce`, `warn` and `audit` are all set, which is not belt-and-braces:
+`enforce` is evaluated only on Pods, so a non-compliant Deployment would be
+accepted and only its pods would fail, buried in a ReplicaSet event. `warn`
+and `audit` also evaluate pod-controller resources, so a bad Deployment is
+reported at apply time.
+
+Deliberately scoped to `resume-site`. `monitoring` cannot meet the standard -
+node-exporter needs host namespaces and hostPort, and Grafana's chart runs as
+root - so labelling it would break the observability stack. (`ingress-nginx`
+would in fact pass, since dropping `ALL` and adding back only
+`NET_BIND_SERVICE` is permitted, but it is left alone as it is upstream
+chart-managed.)
+
 ## Secrets
 
 Deferred until an actual secret exists (no Key Vault, no CSI driver, no
