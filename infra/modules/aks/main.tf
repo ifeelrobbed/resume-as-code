@@ -62,8 +62,15 @@ resource "azurerm_kubernetes_cluster" "this" {
     network_policy = "calico"
   }
 
-  # Enabled now, unused until phase 2's Key Vault CSI driver / workload
-  # identity work - free to turn on, so no reason to wait and re-provision.
+  # Both are load-bearing: the app authenticates to Blob Storage for the
+  # visitor count with a federated ServiceAccount token, so turning either off
+  # breaks it (see infra/envs/prod/app-identity.tf and ARCHITECTURE.md's
+  # Secrets section).
+  #
+  # Turning them on at provisioning time is what made that possible - changing
+  # either later forces a new cluster, so the cost of enabling them
+  # speculatively was zero and the cost of not having them would have been a
+  # rebuild.
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 

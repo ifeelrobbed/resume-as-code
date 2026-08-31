@@ -160,13 +160,40 @@ chart-managed.)
 
 ## Secrets
 
-Deferred until an actual secret exists (no Key Vault, no CSI driver, no
-workload identity wiring yet). AKS already has `oidc_issuer_enabled` and
-`workload_identity_enabled` turned on (free to enable, avoids a later
-cluster property change) so this is a small addition when needed -
-likely triggered by Grafana auth or an Argo CD private repo credential,
-not by a calendar phase. Standard-tier Key Vault cost at this scale is
-negligible (no subscription fee; ~$0.03 per 10,000 operations).
+Two separate problems, at different stages.
+
+**Azure credentials: solved, with workload identity.** The app reads and
+writes the visitor count in Blob Storage without a credential existing
+anywhere - not in the image, not in a Kubernetes Secret, not in this repo.
+`infra/envs/prod/app-identity.tf` creates a user-assigned identity and
+federates it to the `resume-site` ServiceAccount; the pod receives a
+projected token that AKS exchanges for an Azure token at runtime. Access is
+scoped to the one blob container, not the storage account.
+
+`oidc_issuer_enabled` and `workload_identity_enabled` are what make that
+possible, and were turned on at provisioning time because changing either
+later forces a new cluster.
+
+The app asks for `NewWorkloadIdentityCredential` explicitly rather than
+`DefaultAzureCredential`. The default walks a chain of credential sources, so
+a missing projected token would silently fall back to some other identity;
+here that should be a hard failure.
+
+**Kubernetes Secrets: one exists, created by hand.**
+`alertmanager-discord-webhook` in `monitoring` holds the URL Alertmanager
+posts to. It is created out of band and documented in `BOOTSTRAP.md` - a
+webhook URL is a credential, and this repo is public.
+
+**Key Vault and the CSI driver stay deferred.** A single hand-created Secret
+does not justify the moving parts, and the case that actually mattered - the
+app authenticating to Azure - is already handled without them. Standard-tier
+cost at this scale is negligible (no subscription fee; ~$0.03 per 10,000
+operations), so this is a judgement about complexity, not money.
+
+Worth recording, since it is the kind of thing that is easy to quietly
+overwrite: this section used to predict that Grafana auth or an Argo CD
+private repo credential would be what forced a secrets story. Neither was.
+Alertmanager needing somewhere to send alerts was.
 
 ## Phased roadmap
 
