@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -240,47 +241,62 @@ func queryRange(client *http.Client, baseURL, query string) ([]float64, error) {
 // "Synced - Healthy" that had been displayed since launch regardless of what
 // the cluster was actually doing.
 //
-// Two counts rather than one query returning labels: argocd_app_info carries
-// sync_status and health_status as labels, so reading it directly would need a
-// parse path that inspects `metric` rather than `value`. Counting server-side
-// keeps this on the same scalar path everything else uses, and Prometheus is
-// better at aggregation than this app is.
+// One query returning every series, not two count()s. #43 counted server-side
+// to avoid a parse path that inspects `metric` rather than `value`; the panel
+// tooltip now lists each application by name (#48), so those labels are needed
+// anyway - and reading them turns out to be strictly better:
 //
-// "or vector(0)" matters on the healthy query. count() over a filter that
-// matches nothing returns an empty vector, not zero - so without it, every
-// application being unhealthy would look identical to Prometheus being
-// unreachable. The total query deliberately has no such fallback: no data there
-// genuinely means the state is unknown, and the panel shows a dash.
-const (
-	argoAppsTotalQuery   = `count(argocd_app_info)`
-	argoAppsHealthyQuery = `count(argocd_app_info{sync_status="Synced",health_status="Healthy"}) or vector(0)`
-)
+//   - One round trip instead of two, so total and healthy come from the same
+//     snapshot. The old pair could straddle a state change and needed a clamp
+//     to stop the panel reading "8/7"; that whole class of skew is gone.
+//   - No "or vector(0)" special case. An empty result now means Prometheus
+//     returned nothing, which is genuinely unknown, rather than being
+//     ambiguous with every application counting as zero.
+const argoAppsQuery = `argocd_app_info`
 
 const argoPollInterval = 30 * time.Second
 
-// argoSyncCache holds the last successfully read counts. Like the sparkline
-// caches, a failed poll leaves the previous values in place rather than
-// blanking the panel on one bad scrape.
+// argoApp is one Argo CD Application as the panel tooltip lists it.
+type argoApp struct {
+	Name   string
+	Sync   string
+	Health string
+}
+
+// healthy reports whether this application is in the state the panel counts as
+// good. Defined once here so the count behind "6/7" and the per-application
+// list in the tooltip can never disagree about what healthy means.
+func (a argoApp) healthy() bool {
+	return a.Sync == "Synced" && a.Health == "Healthy"
+}
+
+// argoSyncCache holds the last successfully read set of applications. Like the
+// sparkline caches, a failed poll leaves the previous values in place rather
+// than blanking the panel on one bad scrape.
 type argoSyncCache struct {
 	mu      sync.RWMutex
-	total   int
-	healthy int
+	apps    []argoApp
 	loaded  bool
 	updated time.Time
 }
 
 var argoSync argoSyncCache
 
-func (c *argoSyncCache) get() (total, healthy int, loaded bool, updated time.Time) {
+func (c *argoSyncCache) get() (apps []argoApp, total, healthy int, loaded bool, updated time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.total, c.healthy, c.loaded, c.updated
+	for _, a := range c.apps {
+		if a.healthy() {
+			healthy++
+		}
+	}
+	return c.apps, len(c.apps), healthy, c.loaded, c.updated
 }
 
-func (c *argoSyncCache) set(total, healthy int) {
+func (c *argoSyncCache) set(apps []argoApp) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.total, c.healthy, c.loaded, c.updated = total, healthy, true, time.Now()
+	c.apps, c.loaded, c.updated = apps, true, time.Now()
 }
 
 func pollArgoSync(ctx context.Context, cache *argoSyncCache) {
@@ -296,23 +312,47 @@ func pollArgoSync(ctx context.Context, cache *argoSyncCache) {
 }
 
 func refreshArgoSync(client *http.Client, baseURL string, cache *argoSyncCache) {
-	total, err := queryScalar(client, baseURL, argoAppsTotalQuery)
+	apps, err := queryArgoApps(client, baseURL)
 	if err != nil {
-		log.Printf("argocd sync poll: total: %v (keeping last value)", err)
+		log.Printf("argocd sync poll: %v (keeping last value)", err)
 		return
 	}
-	healthy, err := queryScalar(client, baseURL, argoAppsHealthyQuery)
-	if err != nil {
-		log.Printf("argocd sync poll: healthy: %v (keeping last value)", err)
-		return
+	cache.set(apps)
+}
+
+// queryArgoApps reads every argocd_app_info series and reduces it to the
+// name/sync/health the panel needs, sorted by name so the tooltip does not
+// reshuffle between polls - Prometheus makes no ordering promise.
+func queryArgoApps(client *http.Client, baseURL string) ([]argoApp, error) {
+	u := baseURL + "/api/v1/query?query=" + url.QueryEscape(argoAppsQuery)
+
+	var pr prometheusInstantResponse
+	if err := getPrometheusJSON(client, u, &pr); err != nil {
+		return nil, err
 	}
-	// Both counts come from separate round trips, so they can straddle a change
-	// in state. Clamping keeps the panel from ever reading "8/7" if an
-	// Application is added between the two queries.
-	if healthy > total {
-		healthy = total
+	if len(pr.Data.Result) == 0 {
+		return nil, errNoData
 	}
-	cache.set(int(total), int(healthy))
+
+	apps := make([]argoApp, 0, len(pr.Data.Result))
+	for _, r := range pr.Data.Result {
+		name := r.Metric["name"]
+		if name == "" {
+			// A series with no name label is not something the tooltip can
+			// show; skipping beats rendering a blank row.
+			continue
+		}
+		apps = append(apps, argoApp{
+			Name:   name,
+			Sync:   r.Metric["sync_status"],
+			Health: r.Metric["health_status"],
+		})
+	}
+	if len(apps) == 0 {
+		return nil, errNoData
+	}
+	slices.SortFunc(apps, func(a, b argoApp) int { return strings.Compare(a.Name, b.Name) })
+	return apps, nil
 }
 
 // prometheusInstantResponse is the shape of an instant query - a vector of
@@ -322,26 +362,12 @@ type prometheusInstantResponse struct {
 	prometheusEnvelope
 	Data struct {
 		Result []struct {
-			Value [2]interface{} `json:"value"`
+			// Metric carries the series labels. queryArgoApps reads
+			// name/sync_status/health_status from here, which is the whole
+			// reason an instant query is used rather than asking Prometheus
+			// to count and return a bare number.
+			Metric map[string]string `json:"metric"`
+			Value  [2]interface{}    `json:"value"`
 		} `json:"result"`
 	} `json:"data"`
-}
-
-// queryScalar runs an instant query expected to produce exactly one value.
-// More than one series means the query is wrong - aggregating was the caller's
-// job - and that is worth failing on rather than silently taking the first.
-func queryScalar(client *http.Client, baseURL, query string) (float64, error) {
-	u := baseURL + "/api/v1/query?query=" + url.QueryEscape(query)
-
-	var pr prometheusInstantResponse
-	if err := getPrometheusJSON(client, u, &pr); err != nil {
-		return 0, err
-	}
-	if len(pr.Data.Result) == 0 {
-		return 0, errNoData
-	}
-	if len(pr.Data.Result) > 1 {
-		return 0, fmt.Errorf("expected a single series, got %d - the query needs aggregating", len(pr.Data.Result))
-	}
-	return sampleValue(pr.Data.Result[0].Value)
 }

@@ -115,6 +115,63 @@ h1, h2, h3 {
   border: 0.5px solid var(--line);
 }
 .stat { background: var(--panel-raised); padding: 16px; }
+.stat:focus { outline: 1px solid var(--amber); outline-offset: -1px; }
+
+/* Panel provenance, in the spirit of Grafana making every panel's query
+   visible to whoever opens it (#48).
+
+   Positioned against .status-grid, not against .stat: anchored to the cell it
+   would be ~160px wide on a phone, and a PromQL string would either overflow
+   the viewport or wrap into a column of single words. Spanning the grid gives
+   every tooltip the same generous width at every breakpoint, and it can never
+   push the page sideways.
+
+   Shown on :focus-within as well as :hover so it is reachable by keyboard and
+   by tap - the panels carry tabindex="0" for exactly that. pointer-events:none
+   keeps the tooltip from stealing the hover that is showing it. */
+.status-grid { position: relative; }
+.stat-tip {
+  position: absolute;
+  left: 0; right: 0; bottom: calc(100% + 8px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.stat:hover .stat-tip,
+.stat:focus-within .stat-tip { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .stat-tip { transition: none; } }
+
+.stat-tip-source { color: var(--text-primary); font-weight: 600; }
+/* The query is the one thing here that must stay literal, so it keeps its
+   whitespace and scrolls rather than wrapping mid-identifier. */
+.stat-tip-query {
+  display: block;
+  color: var(--syn-value);
+  background: var(--panel-raised);
+  border-left: 2px solid var(--amber);
+  padding: 6px 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.stat-tip-note { color: var(--text-tertiary); white-space: pre-wrap; }
+
+.stat-tip-apps { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.stat-tip-app { display: flex; justify-content: space-between; gap: 16px; color: var(--sage); }
+.stat-tip-app.degraded { color: var(--amber); }
+.stat-tip-app .app-name { color: var(--text-secondary); }
 .stat-label { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 0 0 6px; }
 .stat-value { font-family: var(--mono); font-size: 22px; font-weight: 600; margin: 0; }
 .stat-meta { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 4px 0 0; }
