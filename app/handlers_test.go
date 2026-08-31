@@ -283,3 +283,56 @@ func visitorStatBlock(body string) string {
 	}
 	return body[start:end]
 }
+
+// --- last deploy timestamp (#42) -------------------------------------------
+
+// The script reformats this client-side, so the server's job is to emit a
+// parseable machine value. If the attribute or its format changes, the page
+// silently falls back to showing a raw timestamp - which is exactly what #42
+// set out to remove, and would not fail anything else.
+func TestLastDeployRendersAParseableDatetimeAttribute(t *testing.T) {
+	original := buildTime
+	buildTime = "2026-08-31T01:33:01Z"
+	t.Cleanup(func() { buildTime = original })
+
+	_, body := renderIndex(t, "")
+
+	want := `<time datetime="2026-08-31T01:33:01Z">2026-08-31T01:33:01Z</time>`
+	if !strings.Contains(body, want) {
+		t.Errorf("expected %s in the page", want)
+	}
+	// Parseable by Date.parse, which is what the script relies on. RFC3339 is
+	// the subset of ISO 8601 every browser handles.
+	if _, err := time.Parse(time.RFC3339, buildTime); err != nil {
+		t.Errorf("buildTime %q is not RFC3339, so Date.parse would return NaN: %v", buildTime, err)
+	}
+}
+
+// Without JS the element must still show the real timestamp. Rendering an
+// empty element would trade an ugly value for no value at all.
+func TestLastDeployHasANoScriptFallback(t *testing.T) {
+	original := buildTime
+	buildTime = "2026-08-31T01:33:01Z"
+	t.Cleanup(func() { buildTime = original })
+
+	_, body := renderIndex(t, "")
+	if strings.Contains(body, `<time datetime="2026-08-31T01:33:01Z"></time>`) {
+		t.Error("time element is empty - a visitor without JS would see nothing")
+	}
+}
+
+// buildTime is "dev" for a local `go run`. The page must still render, and the
+// script is expected to leave the value alone rather than print "NaN ago".
+func TestLastDeployHandlesTheDevBuildTime(t *testing.T) {
+	original := buildTime
+	buildTime = "dev"
+	t.Cleanup(func() { buildTime = original })
+
+	code, body := renderIndex(t, "")
+	if code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", code)
+	}
+	if !strings.Contains(body, `<time datetime="dev">dev</time>`) {
+		t.Error("expected the dev build time to render unchanged")
+	}
+}
