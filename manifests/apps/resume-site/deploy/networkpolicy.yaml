@@ -69,6 +69,11 @@ spec:
 # manifests/platform/kube-prometheus-stack. Without this rule the scrape is
 # dropped, up{job="resume-site"} goes to 0, and ResumeSiteMetricsUnreachable
 # fires - which is at least a loud failure rather than a silent one.
+#
+# Port 9090, the admin listener, not 8080. That listener serves only /metrics,
+# so this rule now grants reachability to exactly the endpoint Prometheus needs
+# and nothing else - previously it opened the whole public surface to the
+# monitoring namespace as a side effect of them sharing a port (#76).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -87,4 +92,4 @@ spec:
               kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: 8080
+          port: 9090

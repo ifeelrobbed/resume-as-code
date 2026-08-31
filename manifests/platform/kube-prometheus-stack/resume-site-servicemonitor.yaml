@@ -15,6 +15,9 @@ spec:
     matchLabels:
       app: resume-site
   endpoints:
-    - port: http
+    # The admin port, not http - /metrics moved off the public listener so it
+    # stops being reachable through the Ingress (#76). Named rather than
+    # numbered, so this keeps working if the port number ever changes.
+    - port: metrics
       path: /metrics
       interval: 30s

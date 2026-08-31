@@ -12,6 +12,15 @@ spec:
   selector:
     app: resume-site
   ports:
+    # The only port the Ingress references. /metrics is deliberately not
+    # served here (#76).
     - name: http
       port: 80
       targetPort: 8080
+    # Scrape target for the ServiceMonitor. Exposed on the Service so
+    # Prometheus can discover it, but nothing routes to it from outside the
+    # cluster - the Ingress names the http port explicitly, and the
+    # NetworkPolicy only admits the monitoring namespace here.
+    - name: metrics
+      port: 9090
+      targetPort: 9090

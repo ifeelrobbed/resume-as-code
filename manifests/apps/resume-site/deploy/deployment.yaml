@@ -67,7 +67,14 @@ spec:
           # later. Use a sha- tag instead if that mutability ever matters.
           image: ghcr.io/ifeelrobbed/resume-as-code:sha-0c5f785
           ports:
-            - containerPort: 8080
+            # Named so the Service and NetworkPolicy read as intent rather
+            # than as numbers. containerPort is informational to Kubernetes -
+            # what actually binds is app/main.go's publicAddr/metricsAddr, so
+            # these two lists have to be kept in step by hand.
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
           env:
             # The Grafana Public Dashboard share link. Lives here rather than
             # in the Go source because the share token is created by hand
