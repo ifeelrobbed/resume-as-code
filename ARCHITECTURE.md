@@ -158,6 +158,37 @@ would in fact pass, since dropping `ALL` and adding back only
 `NET_BIND_SERVICE` is permitted, but it is left alone as it is upstream
 chart-managed.)
 
+## What is exposed to the internet
+
+The app listens on two ports. `:8080` serves the site and is what the Ingress
+routes to; `:9090` serves `/metrics` and nothing else, and no Ingress
+references it. The Service exposes both so the ServiceMonitor can find the
+scrape target, and the NetworkPolicy admits only the `monitoring` namespace to
+`:9090`.
+
+Two ports rather than a deny rule on the path, because the Ingress routes `/`
+with `pathType: Prefix` - every route on the public listener is reachable, so
+the separation has to be structural rather than a filter that a later edit
+could undo. It also needs no ingress-controller features; blocking the path
+would have meant enabling snippet annotations globally, which ingress-nginx
+disables by default for good reason.
+
+`/metrics` was public until this changed. It exposed the Go version and full
+runtime detail (free fingerprinting against known CVEs), exact traffic volume,
+and `go_goroutines` - which is the signal that would reveal a Slowloris in
+progress, so publishing it let an attacker watch their own progress.
+
+**`/status` and `/readyz` stay public, deliberately.** Everything `/status`
+returns is already rendered on the homepage: build time, uptime, and the
+visitor count. Moving it would hide nothing while making the kubelet probes
+depend on the admin port. It is also a reasonable thing for a site like this to
+let you curl.
+
+The admin listener is not instrumented. A scrape every 30s would otherwise
+appear in the request counters it is reporting, which on a site with a few
+dozen real visits a day would swamp them - the same reason the blackbox
+exporter's probes are already excluded.
+
 ## Secrets
 
 Two separate problems, at different stages.

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // setDraining flips the flag and restores it, so tests can't leak state into
@@ -165,5 +167,86 @@ func TestSparklinePollerStopsOnContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("pollSparkline did not return after context cancellation")
+	}
+}
+
+// --- listener split (#76) ---------------------------------------------------
+
+// The property this change exists for: /metrics must not be reachable on the
+// listener the Ingress routes to. This is the test that fails if someone
+// re-adds it to newMux for convenience.
+func TestMetricsIsNotOnThePublicMux(t *testing.T) {
+	rec := httptest.NewRecorder()
+	newMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /metrics on the public mux returned %d, want 404 - it is reachable from the internet", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "go_goroutines") {
+		t.Error("public mux served Go runtime metrics")
+	}
+}
+
+func TestMetricsIsServedOnTheAdminMux(t *testing.T) {
+	rec := httptest.NewRecorder()
+	newMetricsMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /metrics on the admin mux returned %d, want 200", rec.Code)
+	}
+	// A 200 with an empty body would pass a status-only check while breaking
+	// scraping entirely.
+	if !strings.Contains(rec.Body.String(), "go_goroutines") {
+		t.Error("admin mux responded 200 but served no Go runtime metrics")
+	}
+}
+
+// The admin listener exists to keep things off the internet, so it must not
+// quietly grow a second route.
+func TestAdminMuxServesNothingElse(t *testing.T) {
+	for _, path := range []string{"/", "/resume", "/status", "/readyz", "/static/style.css"} {
+		rec := httptest.NewRecorder()
+		newMetricsMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("admin mux served %s with %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+// Everything a visitor needs must stay on the public listener - the risk when
+// splitting muxes is moving one route too many.
+func TestPublicMuxStillServesTheSite(t *testing.T) {
+	for _, path := range []string{"/", "/resume", "/status", "/readyz"} {
+		rec := httptest.NewRecorder()
+		newMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("public mux served %s with %d, want 200", path, rec.Code)
+		}
+	}
+}
+
+// The two listeners must not collide, and the admin port must be the one the
+// Service/NetworkPolicy name.
+func TestListenerAddressesAreDistinct(t *testing.T) {
+	if publicAddr == metricsAddr {
+		t.Fatal("both servers would bind the same address")
+	}
+	if metricsAddr != ":9090" {
+		t.Errorf("metricsAddr = %s - manifests/apps/resume-site/deploy (Service, NetworkPolicy, containerPort) all name 9090", metricsAddr)
+	}
+	if publicAddr != ":8080" {
+		t.Errorf("publicAddr = %s - the Service's http port targets 8080", publicAddr)
+	}
+}
+
+// Scraping the admin listener must not inflate the counters it is reporting.
+func TestAdminMuxIsNotInstrumented(t *testing.T) {
+	before := promtestutil.CollectAndCount(httpRequestsTotal)
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		newMetricsMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	}
+	if after := promtestutil.CollectAndCount(httpRequestsTotal); after != before {
+		t.Errorf("scraping /metrics added %d series to resume_http_requests_total", after-before)
 	}
 }
