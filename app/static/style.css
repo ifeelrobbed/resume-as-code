@@ -155,23 +155,35 @@ h1, h2, h3 {
 @media (prefers-reduced-motion: reduce) { .stat-tip { transition: none; } }
 
 .stat-tip-source { color: var(--text-primary); font-weight: 600; }
-/* The query is the one thing here that must stay literal, so it keeps its
-   whitespace and scrolls rather than wrapping mid-identifier. */
+/* Wraps rather than scrolling. This first scrolled horizontally to avoid
+   breaking mid-identifier, which measured fine - the box did scroll - but an
+   inline scroll region carries no visible affordance, so in practice the query
+   was simply cut off: the p95 one on desktop, that and req/s on a phone. A
+   query broken across lines is still readable; a query you cannot see is not.
+   overflow-wrap only breaks inside a token when a whole one cannot fit, so the
+   spaces and parens in PromQL are still preferred. */
 .stat-tip-query {
   display: block;
   color: var(--syn-value);
   background: var(--panel-raised);
   border-left: 2px solid var(--amber);
   padding: 6px 8px;
-  overflow-x: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .stat-tip-note { color: var(--text-tertiary); white-space: pre-wrap; }
 
 .stat-tip-apps { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
-.stat-tip-app { display: flex; justify-content: space-between; gap: 16px; color: var(--sage); }
+/* The row wraps, but the state never splits. A long name like
+   prometheus-blackbox-exporter leaves too little room on a phone, and without
+   nowrap the state broke across lines as "Synced ·" / "Healthy" - which reads
+   as two separate facts. Now the whole state drops to its own line instead,
+   left-aligned: space-between puts a lone item on a wrapped line at the start
+   rather than pushing it to the right. */
+.stat-tip-app { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; color: var(--sage); }
 .stat-tip-app.degraded { color: var(--amber); }
 .stat-tip-app .app-name { color: var(--text-secondary); }
+.stat-tip-app .app-state { white-space: nowrap; }
 .stat-label { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 0 0 6px; }
 .stat-value { font-family: var(--mono); font-size: 22px; font-weight: 600; margin: 0; }
 .stat-meta { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 4px 0 0; }

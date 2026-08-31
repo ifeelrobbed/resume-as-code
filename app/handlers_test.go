@@ -458,8 +458,8 @@ func TestVisitorTooltipExplainsValueVersusLine(t *testing.T) {
 
 	_, body := renderIndex(t, "")
 	for _, want := range []string{
-		"Azure Blob Storage",
-		"exact all-time count",
+		"Stored in Azure Blob Storage",
+		"the number: exact all-time count",
 		"visits per day",
 		"117 all-time · 23 today (UTC)",
 	} {
@@ -478,7 +478,7 @@ func TestVisitorTooltipOmitsCountsBeforeLoad(t *testing.T) {
 	if strings.Contains(body, "all-time ·") {
 		t.Error("tooltip stated a visitor count before anything was read")
 	}
-	if !strings.Contains(body, "Azure Blob Storage") {
+	if !strings.Contains(body, "Stored in Azure Blob Storage") {
 		t.Error("tooltip dropped its source description when nothing was loaded")
 	}
 }
@@ -493,5 +493,27 @@ func TestEveryStatPanelIsFocusable(t *testing.T) {
 	}
 	if tips := strings.Count(body, `class="stat-tip"`); tips != focusable {
 		t.Errorf("%d focusable panels but %d tooltips", focusable, tips)
+	}
+}
+
+// Wording feedback from real use: "not Prometheus" and "not a query" only mean
+// something to someone who already knows what the alternative is. Every source
+// must describe itself, so a visitor who has never seen this project can still
+// tell a queried number from a measured one.
+func TestTooltipSourcesDoNotExplainByContrast(t *testing.T) {
+	s := stats()
+	sources := map[string]StatSource{
+		"visitors": s.VisitorSource, "uptime": s.UptimeSource,
+		"last deploy": s.LastDeploySource, "sync": s.SyncSource,
+		"req/s": s.RequestRateSource, "p95": s.P95LatencySource,
+		"error rate": s.ErrorRateSource,
+	}
+	for name, src := range sources {
+		text := strings.ToLower(src.Source + " " + strings.Join(src.Notes, " "))
+		for _, bad := range []string{"not prometheus", "not a query", "not queried"} {
+			if strings.Contains(text, bad) {
+				t.Errorf("%s tooltip says %q - describe what it is, not what it isn't", name, bad)
+			}
+		}
 	}
 }

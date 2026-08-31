@@ -50,11 +50,13 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 // comes from (#48). Grafana makes every panel's query visible to anyone who
 // opens it; this is the same idea for a page nobody can open in an editor.
 //
-// Query is empty for the panels that are not backed by Prometheus at all -
-// uptime is computed in-process, last deploy is injected at image build, and
-// the visitor count comes from blob storage. Saying so is the point: a tooltip
-// that implied a query behind every number would be a more convincing lie than
-// no tooltip.
+// Query is empty for the panels no query backs - uptime is computed in this
+// process, last deploy is injected at image build, and the visitor count comes
+// from blob storage. That absence is the signal, and it is why each Source
+// names its own mechanism in plain terms rather than by contrast with the
+// others: a reader who has never heard of this project should still be able to
+// tell a queried number from a measured one, and phrasing like "not a query"
+// only means something to someone who already knows what the alternative was.
 type StatSource struct {
 	Source string   // where it comes from, in words
 	Query  string   // PromQL, when there is one
@@ -166,8 +168,8 @@ func stats() Stats {
 	// run, referenced rather than retyped, so a tooltip cannot drift into
 	// describing a query the app no longer makes.
 	visitorNotes := []string{
-		"value: exact all-time count",
-		"line:  visits per day, last 30d",
+		"the number: exact all-time count",
+		"the line: visits per day, last 30 days",
 	}
 	if loaded {
 		visitorNotes = append(visitorNotes, fmt.Sprintf("%s all-time · %d today (UTC)", count, visitsToday(history)))
@@ -180,40 +182,40 @@ func stats() Stats {
 		ArgoApps:                argoApps,
 
 		VisitorSource: StatSource{
-			Source: "Azure Blob Storage · not Prometheus",
+			Source: "Stored in Azure Blob Storage",
 			Notes:  visitorNotes,
 		},
 		UptimeSource: StatSource{
-			Source: "in-process · not a query",
+			Source: "Measured by the app itself",
 			Notes: []string{
-				"time.Since(startTime) in this pod",
-				"resets on every deploy, so it measures the pod not the site",
+				"time since this pod started serving",
+				"resets on every deploy, so it tracks the pod rather than the site",
 			},
 		},
 		LastDeploySource: StatSource{
-			Source: "build-time constant · not a query",
+			Source: "Stamped into the image when it was built",
 			Notes: []string{
-				`-ldflags "-X main.buildTime" at image build`,
-				"rendered as elapsed time in your timezone",
+				`baked in with -ldflags "-X main.buildTime"`,
+				"shown as elapsed time in your timezone",
 			},
 		},
 		SyncSource: StatSource{
-			Source: "Prometheus · scraped from the Argo CD application-controller",
+			Source: "Prometheus, scraped from the Argo CD controller",
 			Query:  argoAppsQuery,
-			Notes:  []string{"healthy means sync_status=Synced and health_status=Healthy"},
+			Notes:  []string{"counted healthy only when both Synced and Healthy"},
 		},
 		RequestRateSource: StatSource{
-			Source: "Prometheus · 24h range query",
+			Source: "Prometheus, over the last 24 hours",
 			Query:  requestRateQuery,
 		},
 		P95LatencySource: StatSource{
-			Source: "Prometheus · 24h range query",
+			Source: "Prometheus, over the last 24 hours",
 			Query:  p95LatencyQuery,
 		},
 		ErrorRateSource: StatSource{
-			Source: "Prometheus · recording rule, 24h range query",
+			Source: "Prometheus, from a pre-computed rule",
 			Query:  errorRateQuery,
-			Notes:  []string{"no data while error-free, which is why the panel can read —"},
+			Notes:  []string{"reports nothing at all while there are no errors, which is why this can read —"},
 		},
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
