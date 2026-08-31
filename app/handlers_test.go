@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,6 +106,18 @@ func days(counts ...int64) []dayCount {
 	return out
 }
 
+// daysEndingToday is for the tooltip's "N today" line, which looks the current
+// UTC day up by name - a fixed start date would never match it.
+func daysEndingToday(counts ...int64) []dayCount {
+	today := time.Now().UTC()
+	out := make([]dayCount, len(counts))
+	for i, n := range counts {
+		day := today.AddDate(0, 0, -(len(counts) - 1 - i))
+		out[i] = dayCount{Day: utcDay(day), Count: n}
+	}
+	return out
+}
+
 func TestHomepageShowsVisitorCountWhenLoaded(t *testing.T) {
 	setVisitors(t, 4102, true, nil)
 
@@ -151,19 +164,34 @@ func TestHomepageShowsZeroWhenGenuinelyZero(t *testing.T) {
 }
 
 // setArgoSync points the package cache at a known state and restores it.
+// Counts are derived from the app list rather than set directly, so tests
+// exercise the same derivation the page does - synthesising a healthy count
+// that the list could not produce would test nothing real.
 func setArgoSync(t *testing.T, total, healthy int, loaded bool) {
 	t.Helper()
+	apps := make([]argoApp, 0, total)
+	for i := 0; i < total; i++ {
+		a := argoApp{Name: fmt.Sprintf("app-%02d", i), Sync: "Synced", Health: "Healthy"}
+		if i >= healthy {
+			a.Sync, a.Health = "OutOfSync", "Degraded"
+		}
+		apps = append(apps, a)
+	}
+	setArgoApps(t, apps, loaded)
+}
+
+// setArgoApps is the same, for tests that care about the exact list the
+// tooltip renders rather than just the counts.
+func setArgoApps(t *testing.T, apps []argoApp, loaded bool) {
+	t.Helper()
 	argoSync.mu.Lock()
-	prev := struct {
-		total, healthy int
-		loaded         bool
-	}{argoSync.total, argoSync.healthy, argoSync.loaded}
-	argoSync.total, argoSync.healthy, argoSync.loaded = total, healthy, loaded
+	prevApps, prevLoaded := argoSync.apps, argoSync.loaded
+	argoSync.apps, argoSync.loaded = apps, loaded
 	argoSync.mu.Unlock()
 
 	t.Cleanup(func() {
 		argoSync.mu.Lock()
-		argoSync.total, argoSync.healthy, argoSync.loaded = prev.total, prev.healthy, prev.loaded
+		argoSync.apps, argoSync.loaded = prevApps, prevLoaded
 		argoSync.mu.Unlock()
 	})
 }
@@ -334,5 +362,136 @@ func TestLastDeployHandlesTheDevBuildTime(t *testing.T) {
 	}
 	if !strings.Contains(body, `<time datetime="dev">dev</time>`) {
 		t.Error("expected the dev build time to render unchanged")
+	}
+}
+
+// --- panel source tooltips (#48) -------------------------------------------
+
+// The point of the tooltips is that they are true. A panel not backed by
+// Prometheus must not display a query, because a plausible-looking query under
+// a number that never ran one is worse than saying nothing.
+func TestOnlyQueryBackedPanelsShowAQuery(t *testing.T) {
+	s := stats()
+
+	withQuery := map[string]StatSource{
+		"sync":       s.SyncSource,
+		"req/s":      s.RequestRateSource,
+		"p95":        s.P95LatencySource,
+		"error rate": s.ErrorRateSource,
+	}
+	for name, src := range withQuery {
+		if src.Query == "" {
+			t.Errorf("%s is Prometheus-backed but shows no query", name)
+		}
+	}
+
+	withoutQuery := map[string]StatSource{
+		"visitors":    s.VisitorSource,
+		"uptime":      s.UptimeSource,
+		"last deploy": s.LastDeploySource,
+	}
+	for name, src := range withoutQuery {
+		if src.Query != "" {
+			t.Errorf("%s is not Prometheus-backed but shows query %q", name, src.Query)
+		}
+		if src.Source == "" {
+			t.Errorf("%s has no source description, so its tooltip would be blank", name)
+		}
+	}
+}
+
+// Tooltips quote the same constants the pollers run. Retyping them would let a
+// tooltip drift into describing a query the app no longer makes - which is the
+// exact failure #48 exists to prevent, and would never fail anything else.
+func TestTooltipQueriesAreTheQueriesActuallyRun(t *testing.T) {
+	s := stats()
+	for _, tc := range []struct {
+		name, got, want string
+	}{
+		{"req/s", s.RequestRateSource.Query, requestRateQuery},
+		{"p95", s.P95LatencySource.Query, p95LatencyQuery},
+		{"error rate", s.ErrorRateSource.Query, errorRateQuery},
+		{"sync", s.SyncSource.Query, argoAppsQuery},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s tooltip shows %q, but the poller runs %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+func TestSyncTooltipListsEveryApplication(t *testing.T) {
+	setArgoApps(t, []argoApp{
+		{Name: "argocd", Sync: "Synced", Health: "Healthy"},
+		{Name: "ingress-nginx", Sync: "OutOfSync", Health: "Degraded"},
+	}, true)
+
+	_, body := renderIndex(t, "")
+	for _, want := range []string{"argocd", "ingress-nginx", "OutOfSync", "Degraded"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sync tooltip is missing %q", want)
+		}
+	}
+	// The unhealthy row must be marked, or a list of seven names in one colour
+	// makes the reader find the odd one out by eye.
+	if !strings.Contains(body, `stat-tip-app degraded`) {
+		t.Error("the OutOfSync application is not marked degraded in the tooltip")
+	}
+}
+
+// Before the first successful poll there is nothing to list, and the tooltip
+// must not imply an empty cluster.
+func TestSyncTooltipListsNothingBeforeTheFirstPoll(t *testing.T) {
+	setArgoApps(t, nil, false)
+
+	_, body := renderIndex(t, "")
+	if strings.Contains(body, "stat-tip-apps") {
+		t.Error("rendered an application list before anything was read")
+	}
+	// The query itself is still worth showing - it is true regardless.
+	if !strings.Contains(body, argoAppsQuery) {
+		t.Error("sync tooltip dropped its query when no data was loaded")
+	}
+}
+
+func TestVisitorTooltipExplainsValueVersusLine(t *testing.T) {
+	setVisitors(t, 117, true, daysEndingToday(10, 23))
+
+	_, body := renderIndex(t, "")
+	for _, want := range []string{
+		"Azure Blob Storage",
+		"exact all-time count",
+		"visits per day",
+		"117 all-time · 23 today (UTC)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("visitor tooltip is missing %q", want)
+		}
+	}
+}
+
+// Nothing read yet: the tooltip may describe the source, but must not state a
+// count it does not have.
+func TestVisitorTooltipOmitsCountsBeforeLoad(t *testing.T) {
+	setVisitors(t, 0, false, nil)
+
+	_, body := renderIndex(t, "")
+	if strings.Contains(body, "all-time ·") {
+		t.Error("tooltip stated a visitor count before anything was read")
+	}
+	if !strings.Contains(body, "Azure Blob Storage") {
+		t.Error("tooltip dropped its source description when nothing was loaded")
+	}
+}
+
+// Every panel must be reachable without a mouse.
+func TestEveryStatPanelIsFocusable(t *testing.T) {
+	_, body := renderIndex(t, "")
+	panels := strings.Count(body, `<div class="stat"`)
+	focusable := strings.Count(body, `<div class="stat" tabindex="0">`)
+	if panels != focusable {
+		t.Errorf("%d stat panels but %d are focusable - the rest are hover-only", panels, focusable)
+	}
+	if tips := strings.Count(body, `class="stat-tip"`); tips != focusable {
+		t.Errorf("%d focusable panels but %d tooltips", focusable, tips)
 	}
 }

@@ -46,6 +46,21 @@ var templates = template.Must(template.New("").Funcs(templateFuncs).ParseGlob("t
 // template can render it in the visitor's own timezone), process uptime,
 // build time (see main.go's buildTime, injected via -ldflags), and 24h
 // request-rate/p95-latency/error-rate sparklines.
+// StatSource is what a panel's hover tooltip shows: where the number actually
+// comes from (#48). Grafana makes every panel's query visible to anyone who
+// opens it; this is the same idea for a page nobody can open in an editor.
+//
+// Query is empty for the panels that are not backed by Prometheus at all -
+// uptime is computed in-process, last deploy is injected at image build, and
+// the visitor count comes from blob storage. Saying so is the point: a tooltip
+// that implied a query behind every number would be a more convincing lie than
+// no tooltip.
+type StatSource struct {
+	Source string   // where it comes from, in words
+	Query  string   // PromQL, when there is one
+	Notes  []string // anything else worth knowing, one line each
+}
+
 type Stats struct {
 	VisitorCount            string
 	VisitorCountUpdatedUnix int64
@@ -60,6 +75,16 @@ type Stats struct {
 	P95LatencySparkline     string
 	ErrorRateCurrent        string
 	ErrorRateSparkline      string
+
+	ArgoApps []argoApp
+
+	VisitorSource     StatSource
+	UptimeSource      StatSource
+	LastDeploySource  StatSource
+	SyncSource        StatSource
+	RequestRateSource StatSource
+	P95LatencySource  StatSource
+	ErrorRateSource   StatSource
 }
 
 func stats() Stats {
@@ -108,7 +133,7 @@ func stats() Stats {
 	// panel is about whether the platform is converged, and the app-of-apps is
 	// the more interesting thing to show. Degrades to a dash rather than
 	// claiming health it hasn't confirmed (#43).
-	argoTotal, argoHealthy, argoLoaded, _ := argoSync.get()
+	argoApps, argoTotal, argoHealthy, argoLoaded, _ := argoSync.get()
 	syncStatus := "—"
 	syncAllHealthy := false
 	if argoLoaded {
@@ -137,10 +162,59 @@ func stats() Stats {
 		errorCurrent = fmt.Sprintf("%.2f%%", errorPoints[n-1]*100)
 	}
 
+	// Panel provenance (#48). The queries are the same constants the pollers
+	// run, referenced rather than retyped, so a tooltip cannot drift into
+	// describing a query the app no longer makes.
+	visitorNotes := []string{
+		"value: exact all-time count",
+		"line:  visits per day, last 30d",
+	}
+	if loaded {
+		visitorNotes = append(visitorNotes, fmt.Sprintf("%s all-time · %d today (UTC)", count, visitsToday(history)))
+	}
+
 	return Stats{
 		VisitorCount:            count,
 		VisitorCountUpdatedUnix: updatedUnix,
 		VisitorSparkline:        visitorSparkline,
+		ArgoApps:                argoApps,
+
+		VisitorSource: StatSource{
+			Source: "Azure Blob Storage · not Prometheus",
+			Notes:  visitorNotes,
+		},
+		UptimeSource: StatSource{
+			Source: "in-process · not a query",
+			Notes: []string{
+				"time.Since(startTime) in this pod",
+				"resets on every deploy, so it measures the pod not the site",
+			},
+		},
+		LastDeploySource: StatSource{
+			Source: "build-time constant · not a query",
+			Notes: []string{
+				`-ldflags "-X main.buildTime" at image build`,
+				"rendered as elapsed time in your timezone",
+			},
+		},
+		SyncSource: StatSource{
+			Source: "Prometheus · scraped from the Argo CD application-controller",
+			Query:  argoAppsQuery,
+			Notes:  []string{"healthy means sync_status=Synced and health_status=Healthy"},
+		},
+		RequestRateSource: StatSource{
+			Source: "Prometheus · 24h range query",
+			Query:  requestRateQuery,
+		},
+		P95LatencySource: StatSource{
+			Source: "Prometheus · 24h range query",
+			Query:  p95LatencyQuery,
+		},
+		ErrorRateSource: StatSource{
+			Source: "Prometheus · recording rule, 24h range query",
+			Query:  errorRateQuery,
+			Notes:  []string{"no data while error-free, which is why the panel can read —"},
+		},
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,
 		SyncStatus:              syncStatus,
@@ -152,6 +226,21 @@ func stats() Stats {
 		ErrorRateCurrent:        errorCurrent,
 		ErrorRateSparkline:      sparklinePoints(errorPoints),
 	}
+}
+
+// visitsToday returns the current UTC day's count from the history behind the
+// sparkline, or 0 before any visit has been recorded today. Bucketed in UTC
+// like the rest of the history, which is why the tooltip says so - a visitor
+// west of Greenwich reading this late in their evening is already on the next
+// UTC day.
+func visitsToday(history []dayCount) int64 {
+	today := utcDay(time.Now())
+	for _, d := range history {
+		if d.Day == today {
+			return d.Count
+		}
+	}
+	return 0
 }
 
 // sparklinePoints normalizes a series of values into an SVG polyline

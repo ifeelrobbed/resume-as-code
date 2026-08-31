@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"os"
 	"testing"
 	"time"
@@ -136,45 +137,46 @@ func TestRefreshSparklinePreservesCacheOnFailure(t *testing.T) {
 	}
 }
 
-func TestQueryScalar(t *testing.T) {
+func TestQueryArgoApps(t *testing.T) {
+	const twoApps = `{"status":"success","data":{"resultType":"vector","result":[` +
+		`{"metric":{"name":"root","sync_status":"Synced","health_status":"Healthy"},"value":[1756000000,"1"]},` +
+		`{"metric":{"name":"argocd","sync_status":"OutOfSync","health_status":"Degraded"},"value":[1756000000,"1"]}]}}`
+
 	tests := []struct {
 		name        string
 		status      int
 		body        string
-		want        float64
+		want        []argoApp
 		wantNoData  bool
 		wantSomeErr bool
 	}{
 		{
-			name:   "single value",
+			// Sorted by name, not returned in Prometheus's order - the input
+			// here is deliberately reversed. Without this the tooltip would
+			// reshuffle its rows between polls.
+			name:   "series are reduced and sorted by name",
 			status: http.StatusOK,
-			body:   `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1756000000,"7"]}]}}`,
-			want:   7,
+			body:   twoApps,
+			want: []argoApp{
+				{Name: "argocd", Sync: "OutOfSync", Health: "Degraded"},
+				{Name: "root", Sync: "Synced", Health: "Healthy"},
+			},
 		},
 		{
-			// What `or vector(0)` produces when the filtered count matches
-			// nothing: a real zero rather than an empty result.
-			name:   "explicit zero from or vector(0)",
-			status: http.StatusOK,
-			body:   `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1756000000,"0"]}]}}`,
-			want:   0,
-		},
-		{
-			// Without `or vector(0)` this is what an all-unhealthy cluster
-			// would return - indistinguishable from Prometheus being down,
-			// which is why the healthy query carries the fallback.
+			// Prometheus reachable but the controller is not being scraped.
+			// Unknown, not "zero applications" - the panel shows a dash.
 			name:       "empty result",
 			status:     http.StatusOK,
 			body:       `{"status":"success","data":{"resultType":"vector","result":[]}}`,
 			wantNoData: true,
 		},
 		{
-			// An unaggregated query would return one series per Application.
-			// Failing is better than silently reporting the first one.
-			name:        "multiple series means the query is wrong",
-			status:      http.StatusOK,
-			body:        `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"name":"a"},"value":[1,"1"]},{"metric":{"name":"b"},"value":[1,"1"]}]}}`,
-			wantSomeErr: true,
+			// A series with no name label cannot be listed. Skipping it beats
+			// rendering a blank row; if that leaves nothing, it is no data.
+			name:       "series without a name label are skipped",
+			status:     http.StatusOK,
+			body:       `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"1"]}]}}`,
+			wantNoData: true,
 		},
 		{
 			name:        "prometheus unavailable",
@@ -186,7 +188,7 @@ func TestQueryScalar(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := queryScalar(testClient(), prometheusStub(t, tt.status, tt.body), argoAppsTotalQuery)
+			got, err := queryArgoApps(testClient(), prometheusStub(t, tt.status, tt.body))
 			switch {
 			case tt.wantNoData:
 				if !errors.Is(err, errNoData) {
@@ -200,7 +202,7 @@ func TestQueryScalar(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if got != tt.want {
+				if !reflect.DeepEqual(got, tt.want) {
 					t.Fatalf("got %v, want %v", got, tt.want)
 				}
 			}
@@ -208,23 +210,51 @@ func TestQueryScalar(t *testing.T) {
 	}
 }
 
+// The count behind "6/7" and the tooltip's per-application list come from the
+// same slice, so they cannot disagree - this pins that they are derived, not
+// stored separately.
+func TestArgoCacheDerivesCountsFromTheAppList(t *testing.T) {
+	var cache argoSyncCache
+	cache.set([]argoApp{
+		{Name: "a", Sync: "Synced", Health: "Healthy"},
+		{Name: "b", Sync: "Synced", Health: "Healthy"},
+		{Name: "c", Sync: "OutOfSync", Health: "Healthy"},
+		{Name: "d", Sync: "Synced", Health: "Degraded"},
+	})
+
+	apps, total, healthy, loaded, _ := cache.get()
+	if !loaded {
+		t.Fatal("loaded should be true after a successful set")
+	}
+	if total != 4 || healthy != 2 {
+		t.Errorf("got %d/%d, want 2/4 - only Synced+Healthy counts", healthy, total)
+	}
+	if len(apps) != 4 {
+		t.Errorf("tooltip list has %d apps, want all 4 including the unhealthy ones", len(apps))
+	}
+}
+
 // A failed poll must leave the panel showing the last known state rather than
 // blanking it, matching how the sparkline caches behave.
 func TestRefreshArgoSyncPreservesCacheOnFailure(t *testing.T) {
 	var cache argoSyncCache
-	ok := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1756000000,"7"]}]}}`
+	ok := `{"status":"success","data":{"resultType":"vector","result":[` +
+		`{"metric":{"name":"root","sync_status":"Synced","health_status":"Healthy"},"value":[1756000000,"1"]}]}}`
 	refreshArgoSync(testClient(), prometheusStub(t, http.StatusOK, ok), &cache)
 
-	total, healthy, loaded, updatedAt := cache.get()
-	if total != 7 || healthy != 7 || !loaded {
-		t.Fatalf("setup: got %d/%d loaded=%v, want 7/7 true", healthy, total, loaded)
+	_, total, healthy, loaded, updatedAt := cache.get()
+	if total != 1 || healthy != 1 || !loaded {
+		t.Fatalf("setup: got %d/%d loaded=%v, want 1/1 true", healthy, total, loaded)
 	}
 
 	refreshArgoSync(testClient(), prometheusStub(t, http.StatusServiceUnavailable, "down"), &cache)
 
-	total2, healthy2, _, updated2 := cache.get()
-	if total2 != 7 || healthy2 != 7 {
-		t.Errorf("got %d/%d after a failed poll, want the cached 7/7 held", healthy2, total2)
+	apps2, total2, healthy2, _, updated2 := cache.get()
+	if total2 != 1 || healthy2 != 1 {
+		t.Errorf("got %d/%d after a failed poll, want the cached 1/1 held", healthy2, total2)
+	}
+	if len(apps2) != 1 || apps2[0].Name != "root" {
+		t.Errorf("the tooltip's app list was lost on a failed poll: %v", apps2)
 	}
 	if !updated2.Equal(updatedAt) {
 		t.Error("updatedAt moved on a failed poll")
