@@ -59,7 +59,12 @@
         </div>
         <div class="stat">
           <p class="stat-label">last deploy</p>
-          <p class="stat-value">{{.Stats.LastDeploy}}</p>
+          <!-- The ISO timestamp is the element's own datetime attribute rather
+               than a data-* of our invention: it is the standard machine-readable
+               form, so it stays parseable by anything that reads the page, and it
+               is what the script below reformats. Rendered as the text too, so a
+               visitor without JS sees the real value instead of a blank. -->
+          <p class="stat-value"><time datetime="{{.Stats.LastDeploy}}">{{.Stats.LastDeploy}}</time></p>
         </div>
         <div class="stat">
           <p class="stat-label">sync</p>
@@ -135,10 +140,48 @@
       // opinion) - format it in the visitor's own locale/timezone here
       // rather than picking one server-side that won't match most visitors.
       var el = document.querySelector('.stat-meta[data-updated-unix]');
-      var unix = parseInt(el.getAttribute('data-updated-unix'), 10);
-      if (unix) {
-        var time = new Date(unix * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        el.textContent = 'as of ' + time;
+      if (el) {
+        var unix = parseInt(el.getAttribute('data-updated-unix'), 10);
+        if (unix) {
+          var time = new Date(unix * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          el.textContent = 'as of ' + time;
+        }
+      }
+
+      // "last deploy" ships as ISO 8601 and is reformatted here for the same
+      // reason: the useful reading is "how fresh is this?", and both "now" and
+      // the timezone belong to the visitor, not the server. A cached page
+      // rendered server-side would be wrong on both counts.
+      //
+      // Elapsed time is floored rather than rounded, so 59 minutes reads as
+      // "59m ago" and never rounds up to an hour that has not passed.
+      function elapsed(then) {
+        var secs = Math.floor((Date.now() - then.getTime()) / 1000);
+        // Negative means the visitor's clock is behind the build host's.
+        // "just now" is the honest reading; "-3m ago" is not.
+        if (secs < 60) { return 'just now'; }
+        var mins = Math.floor(secs / 60);
+        if (mins < 60) { return mins + 'm ago'; }
+        var hours = Math.floor(mins / 60);
+        if (hours < 24) { return hours + 'h ago'; }
+        var days = Math.floor(hours / 24);
+        if (days < 30) { return days + 'd ago'; }
+        // Past a month "43d ago" stops being easier to read than a date.
+        return then.toLocaleDateString();
+      }
+
+      var t = document.querySelector('.stat-value time[datetime]');
+      if (t) {
+        var parsed = Date.parse(t.getAttribute('datetime'));
+        // buildTime is the literal "dev" for a local `go run`, and -ldflags
+        // could inject anything. Leave whatever is already on the page rather
+        // than replacing a real value with "NaN ago".
+        if (!isNaN(parsed)) {
+          var when = new Date(parsed);
+          t.textContent = elapsed(when);
+          // The exact moment stays one hover away, in the visitor's timezone.
+          t.title = when.toLocaleString();
+        }
       }
     })();
   </script>
