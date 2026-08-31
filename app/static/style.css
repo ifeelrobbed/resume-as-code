@@ -174,16 +174,29 @@ h1, h2, h3 {
 .stat-tip-note { color: var(--text-tertiary); white-space: pre-wrap; }
 
 .stat-tip-apps { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
-/* The row wraps, but the state never splits. A long name like
-   prometheus-blackbox-exporter leaves too little room on a phone, and without
-   nowrap the state broke across lines as "Synced ·" / "Healthy" - which reads
-   as two separate facts. Now the whole state drops to its own line instead,
-   left-aligned: space-between puts a lone item on a wrapped line at the start
-   rather than pushing it to the right. */
-.stat-tip-app { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; color: var(--sage); }
+/* Two columns that stay two columns. This is a table, so the long cell wraps
+   rather than the row: prometheus-blackbox-exporter is the only name wide
+   enough to need it on a phone, and it breaks at one of its own hyphens with
+   the state still right-aligned beside its first line.
+
+   Wrapping the row instead was the first attempt and looked broken - the state
+   dropped below its name and hung on the left, so that one row read as a
+   different layout from the other six.
+
+   min-width:0 is what actually lets the name wrap: a flex item defaults to
+   min-width:auto and refuses to shrink below its content, which would push the
+   state out of the tooltip instead. flex:none keeps the state at its natural
+   width so the name column absorbs all the pressure. */
+.stat-tip-app {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 16px;
+  color: var(--sage);
+}
 .stat-tip-app.degraded { color: var(--amber); }
-.stat-tip-app .app-name { color: var(--text-secondary); }
-.stat-tip-app .app-state { white-space: nowrap; }
+.stat-tip-app .app-name { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
+.stat-tip-app .app-state { white-space: nowrap; flex: none; }
 .stat-label { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 0 0 6px; }
 .stat-value { font-family: var(--mono); font-size: 22px; font-weight: 600; margin: 0; }
 .stat-meta { font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); margin: 4px 0 0; }
