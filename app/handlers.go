@@ -61,6 +61,12 @@ type StatSource struct {
 	Source string   // where it comes from, in words
 	Query  string   // PromQL, when there is one
 	Notes  []string // anything else worth knowing, one line each
+
+	// TimestampISO is rendered as a <time> the page script reformats into the
+	// reader's own timezone. It lives in the tooltip rather than in a title
+	// attribute on the value: a title is a second tooltip nested inside this
+	// one, which nothing advertises and a touch device cannot reach at all.
+	TimestampISO string
 }
 
 type Stats struct {
@@ -143,10 +149,12 @@ func stats() Stats {
 		syncAllHealthy = argoHealthy == argoTotal && argoTotal > 0
 	}
 
+	// One decimal, because the query now yields requests per hour rather than
+	// per second - a whole number would round a quiet afternoon to 0.
 	ratePoints, _ := requestRate.get()
 	rateCurrent := "—"
-	if len(ratePoints) > 0 {
-		rateCurrent = fmt.Sprintf("%.2f", ratePoints[len(ratePoints)-1])
+	if n := len(ratePoints); n > 0 && !math.IsNaN(ratePoints[n-1]) {
+		rateCurrent = fmt.Sprintf("%.1f", ratePoints[n-1])
 	}
 
 	// histogram_quantile()'s buckets are seconds - ms reads better here
@@ -196,8 +204,9 @@ func stats() Stats {
 			Source: "Stamped into the image when it was built",
 			Notes: []string{
 				`baked in with -ldflags "-X main.buildTime"`,
-				"shown as elapsed time in your timezone",
+				"the panel counts forward from this moment",
 			},
+			TimestampISO: buildTime,
 		},
 		SyncSource: StatSource{
 			Source: "Prometheus, scraped from the Argo CD controller",
@@ -205,17 +214,31 @@ func stats() Stats {
 			Notes:  []string{"counted healthy only when both Synced and Healthy"},
 		},
 		RequestRateSource: StatSource{
-			Source: "Prometheus, over the last 24 hours",
+			Source: "Prometheus",
 			Query:  requestRateQuery,
+			Notes: []string{
+				"the number: the most recent 3 hours, as an hourly rate",
+				"the line: the last 24 hours",
+			},
 		},
 		P95LatencySource: StatSource{
-			Source: "Prometheus, over the last 24 hours",
+			Source: "Prometheus",
 			Query:  p95LatencyQuery,
+			Notes: []string{
+				"the number: the most recent 3 hours",
+				"the line: the last 24 hours",
+				"each point spans 3 hours so quiet stretches still hold a sample",
+				"reads — when no requests at all landed in the window",
+			},
 		},
 		ErrorRateSource: StatSource{
 			Source: "Prometheus, from a pre-computed rule",
 			Query:  errorRateQuery,
-			Notes:  []string{"reports nothing at all while there are no errors, which is why this can read —"},
+			Notes: []string{
+				"the number: the most recent 5 minutes",
+				"the line: the last 24 hours",
+				"reports nothing at all while there are no errors, which is why this can read —",
+			},
 		},
 		Uptime:                  time.Since(startTime).Round(time.Second).String(),
 		LastDeploy:              buildTime,

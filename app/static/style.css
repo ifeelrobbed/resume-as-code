@@ -154,6 +154,24 @@ h1, h2, h3 {
 .stat:focus-within .stat-tip { opacity: 1; visibility: visible; }
 @media (prefers-reduced-motion: reduce) { .stat-tip { transition: none; } }
 
+/* Hover reveals the tooltips on a pointer device; a touch screen has no such
+   affordance, so the panels look inert. Shown only where hover genuinely does
+   not exist - (hover: none) asks the device rather than guessing from width,
+   so a narrow desktop window keeps the clean layout and a tablet with a mouse
+   is not told to tap. One hint, not one per grid: the behaviour is the same on
+   both and repeating it reads as noise. */
+.grid-hint { display: none; }
+@media (hover: none) {
+  .grid-hint {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin: 8px 0 0;
+  }
+  .grid-hint::before { content: '\2197  '; }
+}
+
 .stat-tip-source { color: var(--text-primary); font-weight: 600; }
 /* Wraps rather than scrolling. This first scrolled horizontally to avoid
    breaking mid-identifier, which measured fine - the box did scroll - but an
@@ -172,6 +190,7 @@ h1, h2, h3 {
   overflow-wrap: anywhere;
 }
 .stat-tip-note { color: var(--text-tertiary); white-space: pre-wrap; }
+.stat-tip-when { color: var(--text-secondary); }
 
 .stat-tip-apps { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
 /* Two columns that stay two columns. This is a table, so the long cell wraps

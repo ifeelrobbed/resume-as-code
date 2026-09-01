@@ -23,13 +23,47 @@ import (
 // exporter's traffic is (see instrument() in metrics.go) - confirmed live that
 // they alone produce a flat ~0.267 req/s baseline that would otherwise swamp
 // real traffic in the sparkline.
-const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[5m]))`
+//
+// Requests per hour, not per second, and over the same 3h window as the p95
+// query below for the same reason - see its comment for the measurements and
+// the arrival-sparsity argument.
+//
+// Per second was unreadable at this scale rather than merely imprecise: a few
+// dozen visits a day is roughly 0.0007 req/s, which formats as "0.00" at any
+// window. Widening alone would not have fixed that; the unit was wrong. The
+// *3600 lives in the query rather than in the formatting so the tooltip shows
+// the number the panel is actually displaying.
+const requestRateQuery = `sum(rate(resume_http_requests_total{handler="index"}[3h])) * 3600`
 
 // Same handler="index" scoping, and for the same reason: resume_http_
 // request_duration_seconds is a HistogramVec keyed by handler, so filtering
 // to index here already excludes /status's kubelet-probe-dominated latency
 // without needing a separate exclusion.
-const p95LatencyQuery = `histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler="index"}[5m])) by (le))`
+//
+// 3h rather than the 5m the other queries use. histogram_quantile returns NaN
+// when no observations fall in the window and the panel shows a dash for NaN,
+// so a 5m window left the panel mostly blank. Measured over a 24h window at
+// 30m steps, NaN points out of 49:
+//
+//	5m: 44 (89%)   15m: 28 (57%)   30m: 19 (38%)   1h: 9 (18%)   3h: 0
+//
+// That traffic is dev and testing, from before the site was linked anywhere,
+// so it says nothing about what real traffic will look like. What it does
+// establish is that the 5m window was too narrow for the traffic that exists.
+//
+// The reason to expect that to keep holding is arrival sparsity rather than
+// volume: a 5m window only yields a number if requests keep arriving at least
+// that often. Traffic from someone reading an application is inherently
+// bursty - a handful of visits in an afternoon, nothing overnight - so short
+// windows stay empty between arrivals however many visits a day there are.
+// Sparse windows also make the statistic hollow: a p95 over a window holding
+// two or three requests is a maximum wearing a percentile's name.
+//
+// The cost is that a latency regression takes hours to surface, which is
+// acceptable for a panel nothing alerts on - ResumeSiteElevatedErrorRate and
+// the probe alerts are unaffected. Worth revisiting once there is real traffic
+// to size this against.
+const p95LatencyQuery = `histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler="index"}[3h])) by (le))`
 
 // References the recording rule by name rather than re-deriving it here,
 // unlike requestRateQuery/p95LatencyQuery - promql/resume-site-rules.yaml's

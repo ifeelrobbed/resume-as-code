@@ -517,3 +517,104 @@ func TestTooltipSourcesDoNotExplainByContrast(t *testing.T) {
 		}
 	}
 }
+
+// The panel's value counts forward from the build time, so the tooltip carries
+// the absolute moment. It previously lived in a title attribute on the value -
+// a tooltip nested inside a tooltip, which nothing advertised and a touch
+// device could not reach.
+func TestLastDeployTooltipCarriesTheAbsoluteTimestamp(t *testing.T) {
+	original := buildTime
+	buildTime = "2026-08-31T01:33:01Z"
+	t.Cleanup(func() { buildTime = original })
+
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, `<time class="stat-tip-when" datetime="2026-08-31T01:33:01Z">`) {
+		t.Error("tooltip is missing the absolute build timestamp")
+	}
+	// The nested title must be gone, or the confusing second tooltip remains.
+	if strings.Contains(body, `title=`) {
+		t.Error("a title attribute is back - that is the nested tooltip this replaced")
+	}
+}
+
+// p95 blanks whenever its window holds no requests, which on a low-traffic site
+// is a normal state rather than a fault. The panel has to say so, exactly as
+// the error rate panel does.
+func TestP95TooltipExplainsWhenItCanReadADash(t *testing.T) {
+	s := stats()
+	joined := strings.ToLower(strings.Join(s.P95LatencySource.Notes, " "))
+	if !strings.Contains(joined, "—") && !strings.Contains(joined, "dash") {
+		t.Error("p95 tooltip never explains what a — means")
+	}
+	if len(s.P95LatencySource.Notes) == 0 {
+		t.Fatal("p95 tooltip has no notes at all")
+	}
+}
+
+// The window was widened because the old one left the panel blank most of the
+// time. Pinning it stops a later edit quietly restoring that.
+func TestP95UsesAWindowWideEnoughToHoldASample(t *testing.T) {
+	if strings.Contains(p95LatencyQuery, "[5m]") {
+		t.Error("p95 is back to a 5m rate window, which was NaN for 89% of a 24h window")
+	}
+	if !strings.Contains(p95LatencyQuery, "[3h]") {
+		t.Errorf("p95 window changed unexpectedly: %s", p95LatencyQuery)
+	}
+}
+
+// Touch devices get no hover, so the tooltips are undiscoverable without a
+// prompt. The prompt must exist in the markup; CSS decides who sees it.
+func TestTouchHintIsPresent(t *testing.T) {
+	_, body := renderIndex(t, "")
+	if !strings.Contains(body, `class="grid-hint"`) {
+		t.Error("the touch hint is missing from the page")
+	}
+	if n := strings.Count(body, `class="grid-hint"`); n != 1 {
+		t.Errorf("found %d hints, want exactly 1 - repeating it on every grid is noise", n)
+	}
+}
+
+// The label used to read "req/s · 24h", which describes the sparkline while
+// sitting next to the value - and the value is the latest point, not a 24h
+// figure. The window moved into the tooltip, where it can say which is which.
+func TestPanelLabelsDoNotClaimAWindowTheValueDoesNotHave(t *testing.T) {
+	_, body := renderIndex(t, "")
+	for _, stale := range []string{"req/s &middot; 24h", "p95 latency &middot; 24h", "error rate &middot; 24h"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("label %q still puts the sparkline's window beside the value", stale)
+		}
+	}
+	for _, want := range []string{`stat-label">req/hr<`, `stat-label">p95 latency<`, `stat-label">error rate<`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected label %q", want)
+		}
+	}
+}
+
+// Every sparkline panel must say which window backs the number and which backs
+// the line, since they differ and only the tooltip can distinguish them.
+func TestSparklineTooltipsDistinguishNumberFromLine(t *testing.T) {
+	s := stats()
+	for name, src := range map[string]StatSource{
+		"req/hr": s.RequestRateSource, "p95": s.P95LatencySource, "error rate": s.ErrorRateSource,
+	} {
+		joined := strings.Join(src.Notes, " ")
+		if !strings.Contains(joined, "the number:") {
+			t.Errorf("%s tooltip does not say what the number covers", name)
+		}
+		if !strings.Contains(joined, "the line:") {
+			t.Errorf("%s tooltip does not say what the line covers", name)
+		}
+	}
+}
+
+// A few dozen visits a day is ~0.0007 req/s, which formats as "0.00" at any
+// window - the unit was the problem, not the precision.
+func TestRequestRateIsAnHourlyRate(t *testing.T) {
+	if !strings.Contains(requestRateQuery, "* 3600") {
+		t.Error("request rate is back to per-second, which renders as 0.00 at this traffic")
+	}
+	if strings.Contains(requestRateQuery, "[5m]") {
+		t.Error("request rate is back to a 5m window, which was exactly zero for 89% of a 24h window")
+	}
+}
