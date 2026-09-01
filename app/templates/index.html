@@ -3,6 +3,7 @@
             <span class="stat-tip-source">{{.Source}}</span>
             {{if .Query}}<code class="stat-tip-query">{{.Query}}</code>{{end}}
             {{range .Notes}}<span class="stat-tip-note">{{.}}</span>{{end}}
+            {{if .TimestampISO}}<time class="stat-tip-when" datetime="{{.TimestampISO}}">{{.TimestampISO}}</time>{{end}}
           </span>
 {{end}}
 <!DOCTYPE html>
@@ -91,6 +92,7 @@
           <p class="stat-sync{{if not .Stats.SyncAllHealthy}} degraded{{end}}"><span class="pulse-dot"></span>{{.Stats.SyncStatus}}</p>
         </div>
       </div>
+      <p class="grid-hint">tap any panel to see where its number comes from</p>
     </section>
 
     <section class="section">
@@ -98,7 +100,7 @@
       <div class="status-grid">
         <div class="stat" tabindex="0">
           {{template "stattip" .Stats.RequestRateSource}}
-          <p class="stat-label">req/s &middot; 24h</p>
+          <p class="stat-label">req/hr</p>
           <p class="stat-value">{{.Stats.RequestRateCurrent}}</p>
           <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
             <polyline points="{{.Stats.RequestRateSparkline}}" />
@@ -106,7 +108,7 @@
         </div>
         <div class="stat" tabindex="0">
           {{template "stattip" .Stats.P95LatencySource}}
-          <p class="stat-label">p95 latency &middot; 24h</p>
+          <p class="stat-label">p95 latency</p>
           <p class="stat-value">{{.Stats.P95LatencyCurrent}}</p>
           <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
             <polyline points="{{.Stats.P95LatencySparkline}}" />
@@ -114,7 +116,7 @@
         </div>
         <div class="stat" tabindex="0">
           {{template "stattip" .Stats.ErrorRateSource}}
-          <p class="stat-label">error rate &middot; 24h</p>
+          <p class="stat-label">error rate</p>
           <p class="stat-value">{{.Stats.ErrorRateCurrent}}</p>
           <svg class="sparkline" width="90" height="24" viewBox="0 0 90 24" aria-hidden="true">
             <polyline points="{{.Stats.ErrorRateSparkline}}" />
@@ -193,6 +195,13 @@
         return then.toLocaleDateString();
       }
 
+      // Absolute timestamps inside the panel tooltips, in the reader's own
+      // timezone for the same reason as everything else here.
+      document.querySelectorAll('time.stat-tip-when[datetime]').forEach(function (el) {
+        var ms = Date.parse(el.getAttribute('datetime'));
+        if (!isNaN(ms)) { el.textContent = new Date(ms).toLocaleString(); }
+      });
+
       var t = document.querySelector('.stat-value time[datetime]');
       if (t) {
         var parsed = Date.parse(t.getAttribute('datetime'));
@@ -202,8 +211,6 @@
         if (!isNaN(parsed)) {
           var when = new Date(parsed);
           t.textContent = elapsed(when);
-          // The exact moment stays one hover away, in the visitor's timezone.
-          t.title = when.toLocaleString();
         }
       }
     })();
