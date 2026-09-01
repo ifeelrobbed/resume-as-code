@@ -87,6 +87,19 @@ h1, h2, h3 {
 .nav-links { display: flex; gap: 24px; font-size: 12px; color: var(--text-secondary); }
 .nav-links a.current { color: var(--amber); }
 
+/* Five items stopped fitting beside the wordmark when contact became linkedin
+   and github (#49). At 375px they ran to x=462 against a 375px viewport, and
+   .page's overflow:hidden clipped them - so the last two links were
+   unreachable rather than merely cramped, and the page still reported no
+   horizontal scroll, which is what makes that failure easy to miss.
+
+   The links wrap onto their own row instead. The breakpoint is where they stop
+   fitting unwrapped (~520px at the full gap), not a device size. */
+@media (max-width: 560px) {
+  .nav { flex-wrap: wrap; row-gap: 10px; }
+  .nav-links { gap: 14px; }
+}
+
 /* hero */
 .hero { padding: 64px 28px 48px; max-width: 640px; position: relative; }
 .topo { position: absolute; top: 0; right: 0; width: 46%; height: 100%; opacity: 0.55; pointer-events: none; }
