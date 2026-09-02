@@ -22,6 +22,17 @@ variable "kubernetes_version" {
   default     = null
 }
 
+# 2 vCPU / 8 GiB. Sized by memory, not CPU: 4 GiB could not hold Prometheus,
+# Grafana and the Argo CD application-controller together, which between them
+# account for most of the ~4.8 GiB in use. CPU is nearly idle by comparison -
+# about 10% - though requests reserve 84% of it, mostly chart defaults nobody
+# chose, so a smaller SKU would be refused on requests long before it ran out
+# of real capacity.
+#
+# This is the largest line on the bill at $61.61/month against roughly $88
+# total, and whether it needs to be this size is the subject of #118. Trimming
+# those requests and Prometheus retention comes first; re-pricing is only
+# meaningful afterwards, and only against real traffic.
 variable "node_vm_size" {
   description = "VM size for the single node pool"
   type        = string
