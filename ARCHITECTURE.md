@@ -60,7 +60,23 @@ Running a full blown landing zone for this site is not feasible from a cost perp
   affordable was moving the visitor count out of Prometheus (#75) - it
   was the only number on the site whose loss was actually visible.
 
-Rough floor: well under $50/month at MVP scale.
+### What it actually costs
+
+Roughly **$88/month**, by service:
+
+| Virtual Machines | Storage | Virtual Network | Load Balancer | Bandwidth |
+| --- | --- | --- | --- | --- |
+| $61.61 | $18.17 | $7.06 | $0.80 | <$0.01 |
+
+This section previously claimed "well under $50/month at MVP scale", which is no longer
+true and is worth leaving on the record rather than quietly overwriting. The node pool was
+moved to a larger SKU (`Standard_D2as_v7`, 2 vCPU / 8 GiB) because the original could not
+hold the workload once Prometheus, Grafana and Argo CD were all running - and the VM line
+alone now exceeds what the whole estate was supposed to cost.
+
+The avoided-services list above is still doing its job; the node is simply bigger than
+planned. Whether it needs to be is an open question - see #118 for the review, which is
+waiting on enough real traffic to size against rather than guessing from an idle cluster.
 
 ## Repo layout
 
@@ -70,15 +86,17 @@ project, and it's easier for a reviewer to browse one repo.
 
 ```
 resume-as-code/
-├── app/            Go app: serves the site, exposes /metrics and /status
-├── controllers/     future Go controllers (phase 3), empty for now
+├── app/            Go app: serves the site on :8080, metrics on :9090
 ├── infra/          Terraform: envs/prod wires modules/{networking,aks}
 ├── manifests/       everything Argo CD watches (platform, observability, apps)
 ├── promql/rules/    recording/alerting rules as code (the only part Argo syncs)
 ├── promql/tests/    promtool unit tests for those rules
 ├── bootstrap/        the one imperative script: installs Argo CD
-└── .github/workflows/ app-ci, terraform-plan/apply, manifests-lint
+└── .github/workflows/ app-ci, app-release, manifests-ci, terraform-plan/apply
 ```
+
+Phase 3's controllers would add a `controllers/` directory. This listing used to
+include it as "empty for now", describing a directory that has never existed.
 
 ## GitOps bootstrap and upgrade path
 
@@ -117,19 +135,27 @@ frontend framework/build pipeline:
   distroless), fast blue/green swaps for the phase-3 rollout controller.
 - `promhttp` exposes `/metrics` natively - one less integration for the
   observability story.
-- Styling via the **Tailwind CDN script tag** - no npm/build toolchain,
-  chosen deliberately since web dev/CSS isn't the skill being
-  showcased here; time is better spent on the Kubernetes/Go side.
+- Styling is a single hand-written stylesheet with CSS custom properties and
+  self-hosted fonts - no npm, no build step, nothing fetched from a CDN at
+  page load. This bullet used to claim Tailwind via a CDN script tag, which
+  was the original plan and never what shipped; the reason for writing it
+  down still holds, in that web/CSS is not the skill being showcased and a
+  toolchain would cost time better spent elsewhere.
 - Build time is injected at compile time via `-ldflags` (not read from
   container filesystem timestamps), so `/status` can report an accurate
   last-deployed time for the homepage stats strip.
 
-Homepage is intentionally short: hero framing, a live stats strip
-(visitor count, uptime, last deploy, Grafana link), skills, a brief
-experience teaser, and a link out. Full work history lives on a separate
-`/resume` page. Reasoning: hiring managers spend seconds per application,
-so the homepage should make its point immediately rather than require
-scrolling through the full resume first.
+Homepage is intentionally short: hero framing, a status strip (visitors,
+uptime, last deploy, Argo CD sync), an observability strip (req/hr, p95
+latency, error rate) with a link to the public Grafana dashboard, skills, a
+brief experience teaser, and links out. Full work history lives on a separate
+`/resume` page. Reasoning: hiring managers spend seconds per application, so
+the homepage should make its point immediately rather than require scrolling
+through the full resume first.
+
+Every panel carries a hover/tap tooltip naming the query or source behind its
+number, in the spirit of Grafana making a panel's query visible to whoever
+opens it. Panels not backed by a query say so rather than implying one.
 
 ## Pod security
 
@@ -228,14 +254,15 @@ Alertmanager needing somewhere to send alerts was.
 
 ## Phased roadmap
 
-1. **MVP**: Terraform-provisioned AKS + networking (done). GitHub Actions
+1. **MVP** — *done*. Terraform-provisioned AKS + networking. GitHub Actions
    builds the Go app and pushes an image. Argo CD syncs the Deployment +
    ingress-nginx + cert-manager. Site live over HTTPS at a real domain.
-2. **Observability**: Prometheus + Grafana as GitOps-managed workloads,
-   PromQL checked into `promql/`, a public/read-only Grafana dashboard
-   linked from the site.
-3. **Custom controller**: leading candidates (may change once phases 1-2
-   are live and suggest better signals):
+2. **Observability** — *done*. Prometheus + Grafana as GitOps-managed
+   workloads, recording and alerting rules checked into `promql/rules/` and
+   unit-tested with promtool, a public/read-only Grafana dashboard linked
+   from the site, and Alertmanager routing to Discord.
+3. **Custom controller** — not started. Leading candidates (phases 1-2 are
+   live now and have not changed the shortlist much):
    - **Drift/cost reporter** - diffs live cluster state vs. last Argo CD
      sync, surfaces a cost/drift report as a Grafana panel or site page.
      Spiritual sibling to a prior Azure Firewall DNAT/Traffic Manager
@@ -249,6 +276,27 @@ Alertmanager needing somewhere to send alerts was.
 
 ## Status
 
-Infra (AKS + networking Terraform) is in place. Next up: app/ scaffold,
-manifests/ (Argo CD app-of-apps, ingress-nginx, cert-manager), and the
-GitHub Actions workflows.
+Phases 1 and 2 are live. The site serves from AKS over HTTPS, every number on
+it is real, delivery is fully GitOps, and the observability stack alerts to
+Discord.
+
+The alerting path is proven end to end: `KubeClientErrors` (a
+kube-prometheus-stack rule, severity `warning`) fired for real and was
+delivered, so routing, the receiver and the webhook secret all work.
+
+What is genuinely untested:
+
+- **None of this repo's own rules in `promql/rules/` have fired.** They are
+  unit-tested against synthetic series and mutation-tested, but nothing has
+  yet gone wrong in a way that trips `ResumeSiteDown`,
+  `ArgoApplicationOutOfSync` or the rest.
+- **The degraded UI states have never rendered from real drift** - the amber
+  sync panel is covered by tests and nothing else.
+- **Disaster recovery has never been rehearsed end to end.** The runbook in
+  BOOTSTRAP.md is written from what each step does, not from having done them
+  in sequence against a genuinely lost cluster.
+
+Phase 3 (a custom controller) has not started. Open work is tracked in GitHub
+issues rather than here, so this section cannot rot into a stale to-do list -
+which is what it had become before this rewrite, still describing app/ and
+manifests/ as "next up" weeks after both shipped.

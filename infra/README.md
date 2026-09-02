@@ -47,7 +47,12 @@ done is instead handled by NSGs + Calico-enforced NetworkPolicies, ingress-nginx
 cert-manager, self-hosted Prometheus/Grafana, and `az aks command invoke`
 for admin access.
 
-Rough floor at these defaults (1x Standard_B2s on-demand, Free-tier control
-plane, Standard LB, one public IP): well under $50/month. The single
-biggest lever if this needs to shrink further is dropping to a smaller
-VM size.
+At these defaults (1x `Standard_D2as_v7` on-demand, Free-tier control plane,
+Standard LB, one public IP) the estate runs about $88/month, of which the node
+VM is $61.61.
+
+Two things in that sentence used to be wrong at once: it named `Standard_B2s`
+and claimed well under $50/month. The node moved to a larger SKU because 4 GiB
+could not hold Prometheus, Grafana and Argo CD together, and the cost moved
+with it. The biggest lever is still the VM size, which is what makes it the
+subject of the open cost review (#118) rather than something to guess at here.
