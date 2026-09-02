@@ -26,10 +26,15 @@ jobs:
       # separately (see terraform-plan-noop.yml, now removed). Detecting
       # relevance inside the job instead means this one file always
       # reports something, with no twin workflow to keep in sync.
+      # Markdown under infra/ is dropped first, for the same reason
+      # terraform-apply excludes it from its paths filter: it is documentation,
+      # not infrastructure. This side only wasted a plan rather than asking for
+      # a production approval, but both should agree on what an infra change is.
       - name: check for infra changes
         id: changes
         run: |
           if git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              | grep -vE '^infra/.*\.md$' \
               | grep -qE '^infra/|^\.github/workflows/terraform-plan\.yml$'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
