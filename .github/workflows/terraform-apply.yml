@@ -5,6 +5,16 @@ on:
     branches: [master]
     paths:
       - "infra/**"
+      # Markdown under infra/ is documentation, not infrastructure. Without
+      # this, editing infra/README.md queued a production apply and left it
+      # waiting on the environment's required reviewer - asking for approval
+      # of a deploy whose entire diff was prose. That is worse than the wasted
+      # run: an approval gate only works while every prompt is worth reading,
+      # and one that fires on documentation teaches you to click through.
+      #
+      # Negation is supported in paths filters and later patterns win, so the
+      # workflow's own entry below still matches.
+      - "!infra/**.md"
       - ".github/workflows/terraform-apply.yml"
 
 permissions:
