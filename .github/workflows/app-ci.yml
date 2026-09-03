@@ -181,6 +181,36 @@ jobs:
             exit 0
           fi
 
+          # Validate the rewrite here, because nothing downstream will.
+          #
+          # A push made with GITHUB_TOKEN does not start a workflow run - that
+          # is GitHub's recursion guard, not a setting - so the merge below has
+          # never triggered manifests-ci on master, and never could. Verified
+          # against deploy commits from before any skip marker existed: they
+          # have no push runs either, only the pull_request runs that used to
+          # fail. The manifest this job edits with sed has therefore never been
+          # checked by CI at all; the image: line count above was the only
+          # guard, and it only proves there was one line to replace, not that
+          # what replaced it is valid YAML or a valid Deployment.
+          #
+          # Same kubeconform invocation as manifests-ci.yml, scoped to the one
+          # file this job touches.
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          ./kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -ignore-missing-schemas \
+            "$manifest"
+          rm -f kubeconform
+
+          # The tag has to be the one that was just built, not merely a valid
+          # string: a sed that silently matched nothing, or matched the wrong
+          # line, still leaves valid YAML behind.
+          if ! grep -qF "image: ${image}" "$manifest"; then
+            echo "::error::${manifest} does not contain 'image: ${image}' after the rewrite"
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # [skip ci] stops GitHub creating pull_request runs for this branch.
