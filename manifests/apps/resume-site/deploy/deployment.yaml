@@ -65,7 +65,7 @@ spec:
           # scanning `kubectl get deploy -o yaml`, but unlike a sha- tag,
           # nothing stops the registry tag itself from being overwritten
           # later. Use a sha- tag instead if that mutability ever matters.
-          image: ghcr.io/ifeelrobbed/resume-as-code:sha-af51aa2
+          image: ghcr.io/ifeelrobbed/resume-as-code:sha-bf109ae
           ports:
             # Named so the Service and NetworkPolicy read as intent rather
             # than as numbers. containerPort is informational to Kubernetes -
