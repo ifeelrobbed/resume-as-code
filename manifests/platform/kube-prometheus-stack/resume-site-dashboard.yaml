@@ -41,8 +41,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Share of external blackbox probes that succeeded over the last 15 days. Measured from outside the cluster against the public URL, so it covers DNS, the load balancer, ingress and TLS - not just whether the pod was running. 15d is Prometheus's retention here, so this is the longest honest window; a cluster rebuild resets it.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "no probe results yet",
                   "unit": "percent"
                 },
                 "overrides": []
@@ -74,8 +76,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Days until the TLS certificate expires, read from the external probe rather than from cert-manager - so it reflects the certificate actually being served. cert-manager renews at 30 days remaining, so a healthy value cycles between about 30 and 90. ResumeSiteCertExpiringSoon alerts below 14, which would mean renewal is not happening.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "no probe results yet",
                   "unit": "d"
                 },
                 "overrides": []
@@ -107,8 +111,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "95th percentile homepage response time over the last 3 hours. Same query the site's own p95 panel runs (p95LatencyQuery in app/livestats.go), plus *1000 for milliseconds. The window is 3h because traffic is sparse and bursty: histogram_quantile returns nothing when no requests land inside the window, and at 5m it was empty 89% of the time. Blank here means no requests in 3 hours, not a fault.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "no requests in the last 3h",
                   "unit": "ms"
                 },
                 "overrides": []
@@ -125,13 +131,13 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[3h])) by (le)) * 1000",
                   "instant": true,
                   "legendFormat": "",
                   "refId": "A"
                 }
               ],
-              "title": "Current p95 latency (index)",
+              "title": "Current p95 latency (index, 3h)",
               "type": "stat"
             },
             {
@@ -140,6 +146,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Git revision and build time of the running image, published by the app itself as resume_build_info. Injected at compile time via -ldflags, so it identifies the exact source that produced this binary rather than when the container happened to start. The same values back the site's own 'last deploy' panel.",
               "gridPos": {
                 "h": 8,
                 "w": 6,
@@ -204,9 +211,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Requests per hour, split by handler. Deliberately not scoped to handler=index the way the site's own req/hr panel is: kubelet's readiness and liveness probes hit /readyz and /status every 5s and 15s, and keeping them as their own series is the point here - it separates a machine's steady baseline from real visits, which a single headline number cannot. Per hour rather than per second for the same reason the site uses it: a few dozen visits a day is about 0.0007 req/s, which renders as 0.00 at any window.",
               "fieldConfig": {
                 "defaults": {
-                  "unit": "reqps"
+                  "unit": "short"
                 },
                 "overrides": []
               },
@@ -222,12 +230,12 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "sum by (handler) (rate(resume_http_requests_total[5m]))",
+                  "expr": "sum by (handler) (rate(resume_http_requests_total[3h])) * 3600",
                   "legendFormat": "{{handler}}",
                   "refId": "A"
                 }
               ],
-              "title": "Request rate by handler",
+              "title": "Requests per hour by handler (3h)",
               "type": "timeseries"
             },
             {
@@ -236,8 +244,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Share of homepage requests returning 5xx. Empty is the healthy state, not a broken panel: the recording rule behind this (resume_site:http_requests:error_ratio5m) is a ratio of 5xx to total, so it produces no series at all while the 5xx count is zero. Plotting a flat zero instead would look identical when Prometheus itself had stopped collecting, which is the one case worth being able to tell apart.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "No errors in this window",
                   "unit": "percent"
                 },
                 "overrides": []
@@ -268,8 +278,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "p50, p95 and p99 homepage latency over a rolling 3h window - the same window as the p95 stat above, and for the same reason: at 5m these lines were absent most of the time, because histogram_quantile returns nothing when no requests fall inside the window. Gaps mean no traffic in that period, not slow responses.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "no requests in this window",
                   "unit": "ms"
                 },
                 "overrides": []
@@ -286,7 +298,7 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "histogram_quantile(0.50, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "expr": "histogram_quantile(0.50, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[3h])) by (le)) * 1000",
                   "legendFormat": "p50",
                   "refId": "A"
                 },
@@ -295,7 +307,7 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "expr": "histogram_quantile(0.95, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[3h])) by (le)) * 1000",
                   "legendFormat": "p95",
                   "refId": "B"
                 },
@@ -304,7 +316,7 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "histogram_quantile(0.99, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[5m])) by (le)) * 1000",
+                  "expr": "histogram_quantile(0.99, sum(rate(resume_http_request_duration_seconds_bucket{handler=\"index\"}[3h])) by (le)) * 1000",
                   "legendFormat": "p99",
                   "refId": "C"
                 }
@@ -318,6 +330,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Requests being served at this instant. A gauge, not a rate, so it is not affected by the sparse-traffic problem the other panels work around. Flat at or near zero is the expected state for a site of this size; a sustained climb would mean requests are arriving faster than they finish, which is the shape a Slowloris attack or a stuck handler would make.",
               "fieldConfig": {
                 "defaults": {
                   "unit": "short"
@@ -362,8 +375,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Clicks on the site's outbound links, by destination. max_over_time is not decoration: this is a process counter that resets to zero on every deploy, so reading it directly would make the panel appear to lose its history on each rollout. Taking the maximum over the window recovers the pre-restart total. nav-* targets are the header links added in #49, the unprefixed ones the footer - kept separate so it is possible to tell whether the header placement earns its keep.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "No outbound clicks recorded yet",
                   "unit": "short",
                   "decimals": 0
                 },
@@ -396,8 +411,10 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Requests to /resume in the last 24 hours - how many visitors went past the homepage to the full work history. increase() extrapolates over the window, so at this traffic level treat it as the right order of magnitude rather than an exact count; the site's own visitor number is the exact one, because it is a durable counter rather than a rate.",
               "fieldConfig": {
                 "defaults": {
+                  "noValue": "No resume page reads in the last 24h",
                   "unit": "short",
                   "decimals": 0
                 },
@@ -442,6 +459,29 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
+              "description": "Whether Prometheus can currently scrape each component. Up means the last scrape succeeded - it says nothing about whether the component is doing its job correctly, only that it is reachable and serving metrics. The job list matches PlatformComponentDown in promql/rules/resume-site-alerts.yaml, so anything red here is also alerting.",
+              "fieldConfig": {
+                "defaults": {
+                  "mappings": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "0": {
+                          "text": "Down",
+                          "color": "red",
+                          "index": 1
+                        },
+                        "1": {
+                          "text": "Up",
+                          "color": "green",
+                          "index": 0
+                        }
+                      }
+                    }
+                  ]
+                },
+                "overrides": []
+              },
               "gridPos": {
                 "h": 8,
                 "w": 24,
@@ -454,7 +494,7 @@ data:
                     "type": "prometheus",
                     "uid": "prometheus"
                   },
-                  "expr": "up{job=~\"cert-manager|cainjector|webhook|ingress-nginx-controller-metrics|resume-site|apiserver\"}",
+                  "expr": "up{job=~\"cert-manager|cainjector|webhook|ingress-nginx-controller-metrics|resume-site|apiserver|argocd-application-controller-metrics\"}",
                   "format": "table",
                   "instant": true,
                   "refId": "A"
@@ -465,9 +505,144 @@ data:
                 {
                   "id": "labelsToFields",
                   "options": {}
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {
+                      "Time": true,
+                      "__name__": true,
+                      "endpoint": true
+                    },
+                    "indexByName": {
+                      "job": 0,
+                      "service": 1,
+                      "Value": 2,
+                      "namespace": 3,
+                      "instance": 4
+                    },
+                    "renameByName": {
+                      "Value": "Scrape status"
+                    }
+                  }
                 }
               ],
               "type": "table"
+            },
+            {
+              "id": 16,
+              "collapsed": false,
+              "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 44
+              },
+              "title": "GitOps (Argo CD)",
+              "type": "row"
+            },
+            {
+              "id": 17,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "description": "Sync operations in the last 24 hours, by outcome. Deliberately not a copy of the site's sync panel, which already shows how many applications are currently Synced and Healthy - this shows what the controller has been doing rather than where it ended up. A Failed bar appearing here is the signal worth watching; no such series has ever existed on this cluster, which is why only Succeeded is shown.",
+              "fieldConfig": {
+                "defaults": {
+                  "noValue": "No syncs in the last 24h",
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 45
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "sum by (phase) (increase(argocd_app_sync_total[24h]))",
+                  "legendFormat": "{{phase}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Sync outcomes (24h)",
+              "type": "bargauge"
+            },
+            {
+              "id": 18,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "description": "Which applications the controller actually synced in the last 24 hours. resume-site dominating is expected - every merge to master that touches app/ opens and merges an image bump, so its sync count is effectively the deploy count. A platform application suddenly churning here would mean something is drifting and being corrected repeatedly.",
+              "fieldConfig": {
+                "defaults": {
+                  "noValue": "No syncs in the last 24h",
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 45
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "sum by (name) (increase(argocd_app_sync_total[24h]))",
+                  "legendFormat": "{{name}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Syncs by application (24h)",
+              "type": "bargauge"
+            },
+            {
+              "id": 19,
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "description": "95th percentile time the application-controller takes to reconcile one application - compare desired state in git against live cluster state and act. This is controller health rather than deployment health: it climbs when the controller is starved of CPU or the cluster cache is large, and it is the number that would explain a deploy that lands in git but takes minutes to appear.",
+              "fieldConfig": {
+                "defaults": {
+                  "noValue": "no reconciliations in the last 3h",
+                  "unit": "s"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 45
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "prometheus"
+                  },
+                  "expr": "histogram_quantile(0.95, sum(rate(argocd_app_reconcile_bucket[3h])) by (le))",
+                  "instant": true,
+                  "legendFormat": "",
+                  "refId": "A"
+                }
+              ],
+              "title": "Reconciliation p95 (3h)",
+              "type": "stat"
             }
           ],
           "refresh": "1m",
