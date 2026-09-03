@@ -63,14 +63,16 @@ jobs:
           go build ./...
           go test ./...
 
-      - id: buildtime
+      - name: record build time
+        id: buildtime
         if: steps.changes.outputs.relevant == 'true'
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # Short form (7 chars) to match the sha-<short> image tag format
       # (docker/metadata-action's type=sha,format=short below) - so the
       # revision label and the tag deployed always read the same way.
-      - id: gitrevision
+      - name: record short git revision
+        id: gitrevision
         if: steps.changes.outputs.relevant == 'true'
         run: echo "value=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -181,7 +183,29 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "manifests: deploy resume-site sha-${REVISION}" -- "$manifest"
+          # [skip ci] stops GitHub creating pull_request runs for this branch.
+          # Without it every deploy left three failed runs behind (app-ci,
+          # manifests-ci, terraform-plan): opening the PR queues them, the merge
+          # below deletes the branch seconds later, and they die before a single
+          # job starts - zero jobs, ~7 seconds, conclusion "failure". Harmless
+          # mechanically, since the code was already tested on the real PR and is
+          # tested again on master, but it left the Actions tab permanently red
+          # on a repo whose whole claim is that delivery works.
+          #
+          # Filtering the trigger instead does not work: branches/branches-ignore
+          # on pull_request match the *base* branch, and these PRs target master
+          # like every other one.
+          #
+          # The marker goes in the commit subject, not the PR title. The merge
+          # commit takes its body from the title, and a "[skip ci]" reaching the
+          # merge commit would skip manifests-ci on master too - which is the run
+          # that actually validates this manifest. Losing PR checks here costs
+          # nothing, because the merge below never waited for them.
+          #
+          # Revisit if required status checks come back on master: a skipped
+          # check is never satisfied, so the auto-merge would hang. The immediate
+          # merge already has that problem, so both change together or neither.
+          git commit -m "manifests: deploy resume-site sha-${REVISION} [skip ci]" -- "$manifest"
           git push --set-upstream origin "$branch"
 
           body=$(cat <<EOF
