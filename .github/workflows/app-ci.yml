@@ -196,11 +196,17 @@ jobs:
           # on pull_request match the *base* branch, and these PRs target master
           # like every other one.
           #
-          # The marker goes in the commit subject, not the PR title. The merge
-          # commit takes its body from the title, and a "[skip ci]" reaching the
-          # merge commit would skip manifests-ci on master too - which is the run
-          # that actually validates this manifest. Losing PR checks here costs
-          # nothing, because the merge below never waited for them.
+          # Keeping the marker off master is what the squash below is for, and
+          # it is not optional. GitHub evaluates the marker against the commits
+          # in a push, not just its head: the first attempt merged this branch,
+          # and although the merge commit itself was clean, this commit
+          # travelling underneath it still suppressed every workflow on master -
+          # including manifests-ci, the run that validates the manifest this job
+          # just rewrote by hand with sed.
+          #
+          # Losing PR checks here costs nothing, because the merge below never
+          # waited for them. Losing master's checks would have meant a
+          # machine-edited manifest reaching Argo CD unvalidated.
           #
           # Revisit if required status checks come back on master: a skipped
           # check is never satisfied, so the auto-merge would hang. The immediate
@@ -230,4 +236,14 @@ jobs:
             sleep 5
           done
 
-          gh pr merge "$branch" --merge --delete-branch
+          # Squash, not merge, and with the message set explicitly rather than
+          # inherited. Squashing means the skip-marked commit above never lands
+          # on master - only this new one does - so the PR's runs stay skipped
+          # while master's manifests-ci runs normally and validates the rewrite.
+          #
+          # --body is given a real value rather than left to default: gh would
+          # otherwise fill it from the branch's commit messages, which would put
+          # the marker straight back onto master and undo the whole point.
+          gh pr merge "$branch" --squash --delete-branch \
+            --subject "manifests: deploy resume-site sha-${REVISION}" \
+            --body "Rolls resume-site to the image built from ${GITHUB_SHA} by app-ci."
