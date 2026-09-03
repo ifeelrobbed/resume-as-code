@@ -41,7 +41,8 @@ jobs:
       # normal build (every push to master builds one) - point the version
       # tag at that exact image instead of rebuilding, so v1.0.0 and its sha
       # tag are guaranteed to be the same bytes, not just the same source.
-      - run: |
+      - name: retag the existing sha- image as the version
+        run: |
           docker buildx imagetools create \
             --tag ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
             ${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA:0:7}

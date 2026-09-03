@@ -63,14 +63,16 @@ jobs:
           go build ./...
           go test ./...
 
-      - id: buildtime
+      - name: record build time
+        id: buildtime
         if: steps.changes.outputs.relevant == 'true'
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       # Short form (7 chars) to match the sha-<short> image tag format
       # (docker/metadata-action's type=sha,format=short below) - so the
       # revision label and the tag deployed always read the same way.
-      - id: gitrevision
+      - name: record short git revision
+        id: gitrevision
         if: steps.changes.outputs.relevant == 'true'
         run: echo "value=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
