@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -90,6 +92,47 @@ func noCacheHeaders(h http.Handler) http.Handler {
 	})
 }
 
+// canonicalHostRedirect sends www.<canonicalHost> to the apex with a 308,
+// preserving the path and query. One canonical host: the apex is what og:url
+// advertises and what every link in the repo points at, and serving identical
+// content on both is duplicate content to a search engine.
+//
+// This lives in the app rather than on the Ingress because neither
+// ingress-nginx annotation for the job works here. from-to-www-redirect
+// swallows the ACME challenge for the www name and drops the token from the
+// path, so the certificate could never be issued for it; permanent-redirect
+// takes a fixed URL and sends every path to it, which would land a shared
+// /resume link on the homepage. See manifests/apps/resume-site/deploy/ingress.yaml.
+//
+// 308 rather than 301 so the method and body survive. Practically every www
+// request is a GET, but /engagement/click is a POST, and a 301 would silently
+// turn it into a GET rather than redirecting it intact.
+//
+// Deliberately outside newMux, so it applies to every route including the
+// probes, and deliberately not instrumented: a redirect away from a
+// non-canonical hostname is not a page view, and counting it would inflate the
+// request-rate panel with traffic that never reached a handler.
+func canonicalHostRedirect(h http.Handler) http.Handler {
+	www := "www." + canonicalHost
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// r.Host carries whatever the client sent, which may include a port -
+		// and does locally, where this is reached as localhost:8080. Compared
+		// case-insensitively because hostnames are, and a client is free to
+		// send WWW.
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if !strings.EqualFold(host, www) {
+			h.ServeHTTP(w, r)
+			return
+		}
+		// RequestURI() rather than Path: it keeps the query string and the
+		// original escaping, so /resume?x=1 does not arrive as /resume.
+		http.Redirect(w, r, siteBaseURL+r.URL.RequestURI(), http.StatusPermanentRedirect)
+	})
+}
+
 // newMux is the public surface. No /metrics: it exposes the Go version and
 // full runtime detail (free CVE fingerprinting), exact traffic volume, and
 // go_goroutines - which is the signal that would show a Slowloris in progress,
@@ -142,7 +185,7 @@ func main() {
 	go pollSparkline(ctx, "p95 latency", p95LatencyQuery, &p95Latency)
 	go pollSparkline(ctx, "error rate", errorRateQuery, &errorRate)
 
-	srv := newServer(publicAddr, newMux())
+	srv := newServer(publicAddr, canonicalHostRedirect(newMux()))
 	metricsSrv := newServer(metricsAddr, newMetricsMux())
 
 	go listen(srv)

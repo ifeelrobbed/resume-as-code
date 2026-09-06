@@ -5,38 +5,44 @@ metadata:
   namespace: resume-site
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # Redirects www.robertjcameron.com to the apex with a 308. Without it, www
-    # resolving to this ingress would 404 on the default backend - which is how
-    # it failed before the DNS record existed at all, just later in the request.
-    #
-    # One canonical host, rather than serving the same site on both: the apex is
-    # what og:url advertises and what every link in the repo points at, and two
-    # hostnames serving identical content is duplicate content to a search
-    # engine and a second thing to keep in step.
-    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
 spec:
   ingressClassName: nginx
-  # www appears here but deliberately NOT under rules. The annotation above
-  # generates its own server block for the www host; adding it as a rule would
-  # instead make it a real second server that serves the app, which is the
-  # thing being avoided. It still has to be on the certificate, because TLS is
-  # negotiated before nginx has a Host header to redirect on - without it, www
-  # fails in the handshake and the visitor sees a certificate warning rather
-  # than a redirect.
+  # www has to be on the certificate because TLS is negotiated before anything
+  # can look at a Host header - without it, https://www fails in the handshake
+  # and the visitor sees a certificate warning rather than a redirect.
   #
-  # cert-manager builds the Certificate's dnsNames from this list, so adding
+  # cert-manager builds the Certificate's dnsNames from this list, so listing
   # the name here is what triggers reissue. The solver is http01 (see
   # manifests/platform/cert-manager/cluster-issuer.yaml), so the www DNS record
   # must resolve to this ingress before this is applied, or the challenge is
-  # unreachable and the attempts count against Let's Encrypt's failed
-  # validation limit.
+  # unreachable.
   tls:
     - hosts:
         - robertjcameron.com
         - www.robertjcameron.com
       secretName: resume-site-tls
+  # Both hosts route to the same Service, and the app answers www with a 308 to
+  # the apex (see canonicalHostRedirect in app/main.go). The redirect is in the
+  # app rather than on this Ingress because neither nginx annotation for the job
+  # works here: from-to-www-redirect swallows the ACME challenge for www and
+  # drops the token from the path (#135, reverted), and permanent-redirect sends
+  # every path to one fixed URL, which would land www/resume on the homepage.
+  #
+  # Routing www to the app rather than redirecting at the edge costs one extra
+  # hop into a handler that does nothing but set a Location header, and buys a
+  # redirect that is unit-tested and preserves the path.
   rules:
     - host: robertjcameron.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: resume-site
+                port:
+                  number: 80
+    - host: www.robertjcameron.com
       http:
         paths:
           - path: /
