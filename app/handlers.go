@@ -343,6 +343,71 @@ func sparklinePoints(values []float64) string {
 // the visitor count: don't show something that looks live when it isn't.
 var grafanaDashboardURL = os.Getenv("GRAFANA_DASHBOARD_URL")
 
+// siteBaseURL is the canonical origin, and the only reason it exists is that
+// Open Graph requires absolute URLs - a crawler resolves og:image against
+// nothing, so a relative path yields no thumbnail at all.
+//
+// A constant rather than an env var, unlike grafanaDashboardURL just above.
+// That one is configuration because it genuinely changes: the share token dies
+// with Grafana's database, so a cluster rebuild has to be able to fix the link
+// by editing a manifest. This does not change - it is the same hostname that
+// manifests/apps/resume-site/deploy/ingress.yaml terminates TLS for and that
+// the blackbox exporter probes. Deriving it from the request Host instead would
+// make it vary by however the crawler arrived, which is the one thing a
+// canonical URL must not do: a probe or a port-forward hitting the pod directly
+// would publish og:url pointing at a pod IP.
+//
+// No trailing slash - pageMeta joins paths onto it.
+const siteBaseURL = "https://robertjcameron.com"
+
+// ogImageWidth/ogImageHeight must match the PNG that `make og-image` produces.
+// Declaring them lets a crawler reserve the right space before it has fetched
+// the image; LinkedIn in particular renders a large card immediately rather
+// than falling back to a small one while it measures.
+const (
+	ogImagePath   = "/static/og-image.png"
+	ogImageWidth  = "1200"
+	ogImageHeight = "630"
+
+	// Read out by screen readers in place of the card, so it describes what the
+	// card says rather than naming the file.
+	ogImageAlt = "A dark card reading resume-as-code above robertjcameron.com, " +
+		"over four linked boxes: Terraform, AKS, GitOps, and a highlighted live site."
+)
+
+// Meta is the per-page Open Graph and description metadata (see the "meta"
+// template in templates/). Every page renders the same card image; only the
+// title, description and URL differ, which is why this is built per handler
+// rather than folded into Stats.
+type Meta struct {
+	Title       string
+	Description string
+	URL         string
+	Image       string
+	ImageWidth  string
+	ImageHeight string
+	ImageAlt    string
+}
+
+// pageMeta builds the metadata for one page. path is site-relative and must
+// start with "/".
+//
+// The descriptions passed in are written for this purpose rather than reusing
+// Resume.Bio: the bio's last clause is "the stats below are read from the
+// cluster it's deployed on", which reads as a broken promise in a LinkedIn
+// preview where there is nothing below it.
+func pageMeta(path, title, description string) Meta {
+	return Meta{
+		Title:       title,
+		Description: description,
+		URL:         siteBaseURL + path,
+		Image:       siteBaseURL + ogImagePath,
+		ImageWidth:  ogImageWidth,
+		ImageHeight: ogImageHeight,
+		ImageAlt:    ogImageAlt,
+	}
+}
+
 // IndexData is what templates/index.html renders. Recent is the homepage's
 // condensed preview - just the two most recent Experience entries.
 type IndexData struct {
@@ -350,6 +415,7 @@ type IndexData struct {
 	Resume              Resume
 	Recent              []Experience
 	GrafanaDashboardURL string
+	Meta                Meta
 }
 
 // ResumeData is what templates/resume.html renders. SpecYAML is the same
@@ -360,6 +426,7 @@ type ResumeData struct {
 	Stats    Stats
 	Resume   Resume
 	SpecYAML template.HTML
+	Meta     Meta
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -368,6 +435,10 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		Resume:              resume,
 		Recent:              resume.Experience[:2],
 		GrafanaDashboardURL: grafanaDashboardURL,
+		Meta: pageMeta("/",
+			resume.Name+" - "+resume.Title,
+			"A resume that deploys itself: Terraform to AKS, GitOps with Argo CD, "+
+				"and the cluster's own live metrics rendered on the page."),
 	}
 	if err := templates.ExecuteTemplate(w, "index.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -384,6 +455,10 @@ func resumeHandler(w http.ResponseWriter, r *http.Request) {
 		Stats:    stats(),
 		Resume:   resume,
 		SpecYAML: specYAML,
+		Meta: pageMeta("/resume",
+			resume.Name+" - Resume",
+			"Twenty years in IT as a rendered timeline, and the same data again "+
+				"as a Kubernetes-style spec."),
 	}
 	if err := templates.ExecuteTemplate(w, "resume.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

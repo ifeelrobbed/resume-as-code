@@ -1,0 +1,65 @@
+<!-- Source of truth for the link-preview card. og-image.png is generated from
+     this file - see `make og-image` - because no crawler that matters renders
+     SVG: LinkedIn, Slack and iMessage all want a raster, and Facebook's
+     scraper rejects image/svg+xml outright. Edit here, regenerate, commit both.
+
+     Every colour below is a literal copy of a dark-mode custom property from
+     static/style.css, so the card and the page it previews are recognisably
+     the same site (property names written without their leading dashes, since
+     XML comments cannot contain a double hyphen):
+
+       #15171D ink            #EDE9DE text-primary   #9C9C97 text-secondary
+       #232732 panel-raised   #2E323C line
+       #E2A23B amber          #7FB8D6 syn-value      #7FAE7A sage
+
+     Literal copies because SVG has no way to read a stylesheet it isn't
+     embedded in. Nothing enforces the match: change the palette in style.css
+     and this file has to be changed by hand. Dark values specifically - a
+     preview card is one fixed image and can't follow the reader's colour
+     scheme the way the site does, and the dark palette is the one the site is
+     designed around.
+
+     The font stacks are the mono and serif custom properties with the two
+     @font-face families dropped, since fontconfig can't consume the woff2
+     files in static/fonts. Everything left is a generic stack the rasteriser
+     resolves against whatever it has; the pinned container in the Makefile
+     installs DejaVu so the result is the same wherever it runs. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect x="0" y="0" width="1200" height="630" fill="#15171D"/>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7FB8D6"/>
+    </marker>
+  </defs>
+
+  <!-- Wordmark. The dot echoes the nav's amber accent. -->
+  <circle cx="56" cy="70" r="9" fill="#E2A23B"/>
+  <text x="80" y="82" fill="#EDE9DE" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="58" font-weight="700">resume-as-code</text>
+  <text x="80" y="122" fill="#7FB8D6" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="30" font-weight="500">robertjcameron.com</text>
+
+  <!-- The pipeline, left to right. The last box is outlined in amber and
+       carries a sage dot: it is the thing you are looking at. -->
+  <rect x="71" y="300" width="230" height="140" rx="14" fill="#232732" stroke="#2E323C" stroke-width="2.5"/>
+  <text x="186" y="382" fill="#EDE9DE" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="27" font-weight="700" text-anchor="middle" letter-spacing="1">TERRAFORM</text>
+
+  <rect x="347" y="300" width="230" height="140" rx="14" fill="#232732" stroke="#2E323C" stroke-width="2.5"/>
+  <text x="462" y="382" fill="#EDE9DE" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="34" font-weight="700" text-anchor="middle" letter-spacing="1">AKS</text>
+
+  <rect x="623" y="300" width="230" height="140" rx="14" fill="#232732" stroke="#2E323C" stroke-width="2.5"/>
+  <text x="738" y="382" fill="#EDE9DE" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="27" font-weight="700" text-anchor="middle" letter-spacing="1">GITOPS</text>
+
+  <rect x="899" y="300" width="230" height="140" rx="14" fill="#232732" stroke="#E2A23B" stroke-width="3.5"/>
+  <circle cx="925" cy="330" r="6" fill="#7FAE7A"/>
+  <text x="1014" y="382" fill="#EDE9DE" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', monospace" font-size="27" font-weight="700" text-anchor="middle" letter-spacing="1">LIVE SITE</text>
+
+  <line x1="307" y1="370" x2="337" y2="370" stroke="#7FB8D6" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="583" y1="370" x2="613" y2="370" stroke="#7FB8D6" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="859" y1="370" x2="889" y2="370" stroke="#7FB8D6" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <!-- Echoes the closing sentence of the bio in resume.go. "resume" unaccented,
+       matching the site, which spells it that way throughout: the accents are
+       correct, but they get dropped often enough in practice that carrying them
+       here alone would only make the card disagree with the page it previews. -->
+  <text x="600" y="524" fill="#9C9C97" font-family="ui-serif, 'Iowan Old Style', Georgia, serif" font-size="34" font-weight="400" text-anchor="middle">Both the resume and the live system.</text>
+</svg>
