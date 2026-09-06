@@ -93,3 +93,57 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+---
+# Let's Encrypt HTTP-01 challenges. cert-manager answers a challenge by creating
+# a short-lived solver pod plus its own Ingress for
+# /.well-known/acme-challenge/<token>, in the same namespace as the Certificate -
+# so the solver lands here, where default-deny-ingress above catches it.
+#
+# That is precisely the case its podSelector comment anticipated: "anything added
+# later is denied by default rather than silently exempt". The solver is added
+# later, by a controller rather than by hand, which is why it was not obvious.
+#
+# Without this rule the request reaches ingress-nginx, which routes it correctly
+# to the solver and then cannot connect - so the visible symptom is a 504 from
+# nginx on the challenge URL, and cert-manager reports its own self check timing
+# out. Neither names a NetworkPolicy, which is what made this expensive to
+# attribute (found while adding the www SAN in #135).
+#
+# The consequence was not limited to new names: this broke every future issuance
+# from the moment the policies landed (2026-08-29). Nothing needed issuing in
+# between, so it stayed invisible. The current certificate is valid to
+# 2026-11-02 and renews at 2026-10-03, and that renewal would have failed the
+# same way - silently, then loudly when the certificate expired.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-acme-http01-solver
+  namespace: resume-site
+spec:
+  # Set by cert-manager on every HTTP-01 solver pod. Unlike the ingress-nginx
+  # chart's labels - which allow-ingress-nginx above deliberately avoids binding
+  # to - this one is part of how cert-manager's ACME implementation identifies
+  # its own solvers, not a packaging detail of a chart, so it is far less likely
+  # to move under a version bump.
+  #
+  # Matching the label rather than a name: solver pods are generated with a
+  # random suffix per challenge and exist for a minute or two, so there is no
+  # stable name to write down.
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Same source and same reasoning as allow-ingress-nginx: the challenge
+        # arrives from the public internet through the ingress controller, not
+        # from cert-manager itself.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        # cert-manager's solver listens on 8089. Its Ingress maps 80 -> 8089,
+        # and as with the rule above, policy is evaluated against the pod.
+        - protocol: TCP
+          port: 8089
