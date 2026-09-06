@@ -5,11 +5,35 @@ metadata:
   namespace: resume-site
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Redirects www.robertjcameron.com to the apex with a 308. Without it, www
+    # resolving to this ingress would 404 on the default backend - which is how
+    # it failed before the DNS record existed at all, just later in the request.
+    #
+    # One canonical host, rather than serving the same site on both: the apex is
+    # what og:url advertises and what every link in the repo points at, and two
+    # hostnames serving identical content is duplicate content to a search
+    # engine and a second thing to keep in step.
+    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
 spec:
   ingressClassName: nginx
+  # www appears here but deliberately NOT under rules. The annotation above
+  # generates its own server block for the www host; adding it as a rule would
+  # instead make it a real second server that serves the app, which is the
+  # thing being avoided. It still has to be on the certificate, because TLS is
+  # negotiated before nginx has a Host header to redirect on - without it, www
+  # fails in the handshake and the visitor sees a certificate warning rather
+  # than a redirect.
+  #
+  # cert-manager builds the Certificate's dnsNames from this list, so adding
+  # the name here is what triggers reissue. The solver is http01 (see
+  # manifests/platform/cert-manager/cluster-issuer.yaml), so the www DNS record
+  # must resolve to this ingress before this is applied, or the challenge is
+  # unreachable and the attempts count against Let's Encrypt's failed
+  # validation limit.
   tls:
     - hosts:
         - robertjcameron.com
+        - www.robertjcameron.com
       secretName: resume-site-tls
   rules:
     - host: robertjcameron.com
