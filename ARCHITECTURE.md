@@ -157,6 +157,20 @@ Every panel carries a hover/tap tooltip naming the query or source behind its
 number, in the spirit of Grafana making a panel's query visible to whoever
 opens it. Panels not backed by a query say so rather than implying one.
 
+Both pages carry Open Graph tags so a link shared on LinkedIn unfurls as a card
+rather than a bare URL. The card image is committed as a PNG
+(`app/static/og-image.png`) and generated from a committed SVG
+(`og-image.svg`) by `make og-image`, which rasterises it in a pinned container.
+The one deliberate exception to "no build step": crawlers won't render SVG, and
+generating the PNG during the image build would put a rasteriser and fonts into
+an image whose whole point is being distroless and small. The cost is that the
+SVG and PNG can drift - editing one without regenerating the other is not
+caught, because rsvg's output isn't byte-identical across architectures and so
+a regenerate-and-diff check would fail more often on nothing than on a real
+change. A Go test does check the committed PNG's real dimensions against the
+`og:image:width`/`height` the pages advertise, which is the half of the problem
+that fails silently in front of a hiring manager.
+
 ## Pod security
 
 The `resume-site` namespace enforces the [restricted Pod Security

@@ -22,11 +22,37 @@ PROMQL_RULES_OUT := $(BIN_DIR)/promql-rules
 YAMLLINT_CONFIG := {extends: default, rules: {line-length: disable, document-start: disable}}
 DOCKER_IMAGE := resume-site-local
 DOCKER_PORT := 8081
+# The link-preview card. The SVG is the source; the PNG is what crawlers get,
+# and it is committed rather than built during the image build so the app image
+# needs no rasteriser and CI needs no extra tooling. That trade means the two
+# can drift - editing the SVG without running this target leaves a stale PNG in
+# the tree, and nothing catches it. A `git diff --exit-code` check after a
+# rebuild would, but rsvg's output is not byte-identical across architectures
+# or font-package versions, so the check would fail on an unchanged card more
+# often than on a real drift. Deferred on that, not decided against.
+#
+# Pinned to an Alpine release rather than :latest because rsvg-convert and
+# font-dejavu between them decide the actual pixels, and a major bump can
+# change the DejaVu version and restyle the card without anything saying so.
+# It narrows that risk rather than eliminating it - apk still resolves to
+# whatever 3.20 currently ships, so this is not byte-reproducible.
+#
+# 1200x630 is the size LinkedIn, Facebook and Slack all scale from. The
+# explicit background flattens the alpha channel rsvg would otherwise emit -
+# harmless here since the SVG's own background rect is opaque, but some
+# crawlers composite transparency onto black or white without asking.
+OG_IMAGE_DIR := $(APP_DIR)/static
+OG_IMAGE_BASE := alpine:3.20
+OG_IMAGE_W := 1200
+OG_IMAGE_H := 630
+# Backslash-escaped: unescaped, the # would start a make comment and leave this
+# empty, which rsvg reads as "transparent" - the one value it must not be.
+OG_IMAGE_BG := \#15171D
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GIT_REVISION := $(shell git rev-parse --short=7 HEAD)
 
 .PHONY: help fmt vet build test app-check yamllint kubeconform promql-test manifests-check \
-	dry-run docker-build docker-run docker-test docker-stop docker-clean run check
+	dry-run docker-build docker-run docker-test docker-stop docker-clean og-image run check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -114,6 +140,16 @@ docker-stop: ## Stop the local test container
 
 docker-clean: docker-stop ## Stop the container and remove the local test image
 	-docker rmi $(DOCKER_IMAGE) >/dev/null 2>&1
+
+## --- Link-preview image ---
+
+og-image: ## Regenerate app/static/og-image.png from og-image.svg (needs Docker) - run after editing the SVG
+	docker run --rm -v "$(CURDIR)/$(OG_IMAGE_DIR):/w" -w /w $(OG_IMAGE_BASE) sh -c '\
+		apk add --no-progress -q rsvg-convert font-dejavu && \
+		rsvg-convert -w $(OG_IMAGE_W) -h $(OG_IMAGE_H) -b "$(OG_IMAGE_BG)" \
+			-o og-image.png og-image.svg && \
+		chown $(shell id -u):$(shell id -g) og-image.png'
+	@echo "Regenerated $(OG_IMAGE_DIR)/og-image.png - commit it alongside the SVG."
 
 ## --- Local dev ---
 
