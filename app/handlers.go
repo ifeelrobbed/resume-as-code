@@ -358,7 +358,12 @@ var grafanaDashboardURL = os.Getenv("GRAFANA_DASHBOARD_URL")
 // would publish og:url pointing at a pod IP.
 //
 // No trailing slash - pageMeta joins paths onto it.
-const siteBaseURL = "https://robertjcameron.com"
+//
+// Built from canonicalHost so the hostname is written once. canonicalHostRedirect
+// in main.go sends "www." + canonicalHost here, and the two disagreeing would
+// mean redirecting visitors to a host the metadata doesn't advertise.
+const canonicalHost = "robertjcameron.com"
+const siteBaseURL = "https://" + canonicalHost
 
 // ogImageWidth/ogImageHeight must match the PNG that `make og-image` produces.
 // Declaring them lets a crawler reserve the right space before it has fetched
