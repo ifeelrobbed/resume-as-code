@@ -16,11 +16,11 @@ spec:
     groupInterval: 5m
     repeatInterval: 4h
     # The chart's own default Watchdog -> "null" silencing (a permanent
-    # dead-man's-switch alert, meant for an external consumer we don't
-    # have) only applied via the raw `config:` value's hardcoded defaults -
-    # bypassed entirely now that alertmanagerConfiguration replaces that
-    # whole mechanism, so it has to be redone explicitly here or Watchdog
-    # would fire into Discord every repeat_interval, forever.
+    # dead-man's-switch alert, meant for an external consumer that does not
+    # exist here) only applied via the raw `config:` value's hardcoded
+    # defaults - bypassed entirely now that alertmanagerConfiguration
+    # replaces that whole mechanism, so it has to be redone explicitly here
+    # or Watchdog would fire into Discord every repeat_interval, forever.
     #
     # Kept as two entries rather than one `alertname =~ "InfoInhibitor|
     # Watchdog"` matcher because they are silenced for unrelated reasons and
