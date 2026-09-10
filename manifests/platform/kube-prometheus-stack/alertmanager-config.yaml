@@ -21,11 +21,35 @@ spec:
     # bypassed entirely now that alertmanagerConfiguration replaces that
     # whole mechanism, so it has to be redone explicitly here or Watchdog
     # would fire into Discord every repeat_interval, forever.
+    #
+    # Kept as two entries rather than one `alertname =~ "InfoInhibitor|
+    # Watchdog"` matcher because they are silenced for unrelated reasons and
+    # are expected to diverge: Watchdog is a candidate for being pointed at an
+    # external heartbeat receiver (#139) rather than discarded, and merging
+    # them now would only have to be unmerged then.
     routes:
       - receiver: "null"
         matchers:
           - name: alertname
             value: Watchdog
+            matchType: "="
+      # InfoInhibitor is plumbing for the inhibitRules below, not an alert -
+      # its own annotation says it "should be routed to a null receiver".
+      # Upstream silences it differently: not via this route at all, but with
+      # a fourth, source-less inhibit rule (`target_matchers: [alertname =
+      # InfoInhibitor]` and nothing else), which lets any firing alert inhibit
+      # it - permanently, in practice, because Watchdog always fires. That is
+      # indirect enough to be worth replacing with an explicit route: this
+      # does not quietly stop working if Watchdog is ever silenced, disabled,
+      # or (per the comment above) routed somewhere real.
+      #
+      # Routing it to "null" does not affect its use as an inhibition source
+      # in rule 3 below - inhibition is evaluated over the firing alert set,
+      # independently of which receiver an alert routes to.
+      - receiver: "null"
+        matchers:
+          - name: alertname
+            value: InfoInhibitor
             matchType: "="
   receivers:
     - name: "null"
@@ -34,3 +58,62 @@ spec:
         - apiURL:
             name: alertmanager-discord-webhook
             key: webhook-url
+
+  # Lost the same way the Watchdog route was, except these were never re-added
+  # and had been missing since the switch to alertmanagerConfiguration (#139).
+  # The chart ships four inhibit_rules in its raw `config:` value, and
+  # bypassing that value dropped all four. Without them every severity of the
+  # same underlying problem notifies separately - a critical alert arrives
+  # alongside its own warning and info duplicates - and InfoInhibitor, which
+  # exists solely to drive rule 3, had nothing to drive and simply paged.
+  #
+  # Three of the four are reproduced here. The fourth silences InfoInhibitor
+  # itself, which the explicit "null" route above now does directly - see the
+  # comment on that route for why the route is preferred to the rule.
+  #
+  # Field names are the CRD's, not the raw config's: sourceMatch/targetMatch
+  # here vs source_matchers/target_matchers in Alertmanager's own YAML. Same
+  # semantics, different spelling - checked against the CRD's openAPI schema
+  # rather than transcribed from upstream's values.yaml.
+  inhibitRules:
+    # 1. A critical alert suppresses the warning and info versions of itself.
+    #    equal on both namespace AND alertname, so this only ever collapses
+    #    duplicate severities of one alert, never two different problems that
+    #    happen to share a namespace.
+    - sourceMatch:
+        - name: severity
+          value: critical
+          matchType: "="
+      targetMatch:
+        - name: severity
+          value: warning|info
+          matchType: "=~"
+      equal: ["namespace", "alertname"]
+
+    # 2. Same idea one severity down.
+    - sourceMatch:
+        - name: severity
+          value: warning
+          matchType: "="
+      targetMatch:
+        - name: severity
+          value: info
+          matchType: "="
+      equal: ["namespace", "alertname"]
+
+    # 3. The rule InfoInhibitor exists for, and the reason it is worth keeping
+    #    the alert at all. It fires for any namespace that has a severity=info
+    #    alert and no warning/critical alongside it; this then suppresses that
+    #    namespace's info alerts. Net effect: info-level alerts notify only
+    #    when something more serious in the same namespace corroborates them.
+    #    equal is namespace only - unlike 1 and 2, this deliberately spans
+    #    different alertnames, since the point is "nothing else is wrong here".
+    - sourceMatch:
+        - name: alertname
+          value: InfoInhibitor
+          matchType: "="
+      targetMatch:
+        - name: severity
+          value: info
+          matchType: "="
+      equal: ["namespace"]
