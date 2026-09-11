@@ -79,9 +79,17 @@ type visitorDoc struct {
 	History []dayCount `json:"history,omitempty"`
 }
 
-// visitorCounter holds the last persisted total plus whatever has arrived since,
-// so the displayed number is correct between flushes rather than lagging by up
-// to a flush interval.
+// visitorCounter holds the last total read from the store plus whatever has
+// arrived at this pod since, so a visitor's own visit shows up immediately
+// rather than waiting for the next flush.
+//
+// With more than one replica that sum is this pod's view, not the cluster's:
+// total is shared, delta is local, so a pod knows nothing of visits the other
+// one is holding unflushed. The number is therefore a slight undercount for up
+// to a flush interval, and the two pods can differ by the same amount. Both
+// converge every time either flushes. That is the deliberate trade - showing
+// only the stored total would agree exactly across pods but would not move
+// when someone visits, on a panel whose point is that it is live.
 //
 // loaded stays false until the first successful read, and the page shows a dash
 // rather than a zero until then - a confident 0 on a site whose whole point is
@@ -212,17 +220,45 @@ func (c *visitorCounter) flush(ctx context.Context, store visitorStore) error {
 
 	pendingTotal := sumDays(pending)
 
-	// Nothing to write and the total is already known - the common case on a
-	// low-traffic site, and worth skipping so most ticks cost no requests.
+	// Nothing of this pod's own to write, but not nothing to do. This used to return
+	// immediately, which was correct while there was exactly one replica: this
+	// process was then the only writer, so its cached total could not be stale.
+	//
+	// With a second replica that stops holding. The other pod advances the
+	// stored total, and a pod serving none of that traffic would otherwise go
+	// on displaying whatever it last wrote - not lagging by a flush interval
+	// but frozen indefinitely, since nothing would ever prompt it to look
+	// again. Re-reading on an idle tick is what keeps the two pods answering
+	// the same question the same way (#142).
+	//
+	// A read, so it cannot conflict with the other pod's write and needs no
+	// retry. It costs one request per pod per flush interval on a site whose
+	// quiet ticks previously cost none, which is the price of the number being
+	// the same on both pods.
 	if pendingTotal == 0 && loaded {
+		stored, version, err := store.load(ctx)
+		if err != nil {
+			return fmt.Errorf("refresh: %w", err)
+		}
+		c.mu.Lock()
+		c.total, c.history, c.version = stored.Total, stored.History, version
+		c.updated = c.clock()
+		c.mu.Unlock()
 		return nil
 	}
 
-	// One retry: a conflict means something else wrote between our load and
-	// save, so re-reading picks up their value and adds ours on top. More than
-	// one retry would be theatre at a single replica.
+	// A conflict means another writer got in between the load and the save, so
+	// re-reading picks up their value and adds this pod's on top. Each attempt can
+	// only lose to one such writer, so N replicas need at most N attempts in
+	// the worst case - two would be exactly enough for the two replicas #142
+	// adds, and exactly enough is the kind of margin that silently stops being
+	// enough when a third is added.
+	//
+	// Running out is not data loss in any case: the delta is left untouched
+	// and the next tick retries with it. The cost of exhausting the attempts
+	// is a log line and a flush interval of staleness, not a dropped visit.
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < visitorFlushAttempts; attempt++ {
 		stored, version, err := store.load(ctx)
 		if err != nil {
 			return fmt.Errorf("load: %w", err)
@@ -292,10 +328,18 @@ func pollVisitors(ctx context.Context, c *visitorCounter, store visitorStore) {
 }
 
 const (
-	// Long enough that a quiet minute costs nothing, short enough that an
+	// Long enough that a quiet minute stays cheap, short enough that an
 	// ungraceful kill loses little. The graceful path loses nothing.
+	//
+	// This is also how far apart two replicas' displayed totals can drift,
+	// since it bounds how long a pod goes before re-reading what the other
+	// one wrote.
 	visitorFlushInterval = 60 * time.Second
 	visitorFlushTimeout  = 10 * time.Second
+
+	// One more than the number of replicas, so a write can lose a race to
+	// every other pod in turn and still land. See the loop in flush().
+	visitorFlushAttempts = 3
 )
 
 // blobVisitorStore persists the count as a single small blob.

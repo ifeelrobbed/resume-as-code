@@ -105,9 +105,15 @@ func TestFlushAddsToExistingValue(t *testing.T) {
 	}
 }
 
-// The common case on a low-traffic site: most ticks have nothing to write and
-// should cost no requests at all.
-func TestFlushSkipsWhenNothingPendingAndAlreadyLoaded(t *testing.T) {
+// An idle tick must not write, because this pod has nothing of its own to add
+// and a write would only be a chance to lose a race for no gain.
+//
+// It must still read. Before #142 this returned without touching the store at
+// all, which was right while one replica was the only writer of a value it had
+// itself cached. With a second replica a pod serving no traffic would sit on a
+// total the other pod had long since moved past - not stale by a flush
+// interval, but frozen, since nothing would ever make it look again.
+func TestIdleFlushReadsButDoesNotWrite(t *testing.T) {
 	store := &fakeStore{count: 10, version: 1, exists: true}
 	c := newCounter()
 
@@ -117,13 +123,48 @@ func TestFlushSkipsWhenNothingPendingAndAlreadyLoaded(t *testing.T) {
 	}
 	loadsAfterFirst, savesAfterFirst := store.loads, store.saves
 
-	// Second flush with no new visits should do nothing.
+	// Stand in for the other replica having taken some visits and persisted
+	// them. Nothing about this pod changed.
+	store.count = 17
+	store.version++
+
 	if err := c.flush(context.Background(), store); err != nil {
-		t.Fatalf("second flush: %v", err)
+		t.Fatalf("idle flush: %v", err)
 	}
-	if store.loads != loadsAfterFirst || store.saves != savesAfterFirst {
-		t.Errorf("idle flush made requests: loads %d->%d, saves %d->%d",
-			loadsAfterFirst, store.loads, savesAfterFirst, store.saves)
+
+	if store.saves != savesAfterFirst {
+		t.Errorf("idle flush wrote: saves %d->%d, want no write with nothing pending",
+			savesAfterFirst, store.saves)
+	}
+	if store.loads != loadsAfterFirst+1 {
+		t.Errorf("idle flush made %d loads, want exactly one - without it this pod never sees the other replica's writes",
+			store.loads-loadsAfterFirst)
+	}
+
+	got, loaded, _ := c.get()
+	if !loaded || got != 17 {
+		t.Errorf("got %d (loaded=%v) after the other replica wrote 17, want 17 - the displayed count froze", got, loaded)
+	}
+}
+
+// The read on an idle tick is the only thing standing between a quiet pod and
+// a frozen number, so a failed read must not be mistaken for success - but it
+// must also not discard what is already known.
+func TestIdleFlushKeepsLastKnownTotalWhenReadFails(t *testing.T) {
+	store := &fakeStore{count: 10, version: 1, exists: true}
+	c := newCounter()
+	if err := c.flush(context.Background(), store); err != nil {
+		t.Fatalf("first flush: %v", err)
+	}
+
+	store.loadErr = errors.New("storage unreachable")
+	if err := c.flush(context.Background(), store); err == nil {
+		t.Error("a failed refresh reported success, so the poller would log nothing")
+	}
+
+	got, loaded, _ := c.get()
+	if !loaded || got != 10 {
+		t.Errorf("got %d (loaded=%v), want the last known 10 held rather than blanked", got, loaded)
 	}
 }
 
@@ -185,6 +226,28 @@ func TestFlushRetriesOnConflict(t *testing.T) {
 	// our 1 to 150 rather than to the stale 50.
 	if store.count != 151 {
 		t.Errorf("stored %d, want 151 - the retry must build on the value that won the race", store.count)
+	}
+}
+
+// Pins the attempt budget rather than leaving it implied. Two conflicts is
+// what two other writers can inflict in the worst case, and the old budget of
+// two attempts survived exactly one - enough for the single replica it was
+// written for, and quietly not enough once #142 added a second.
+//
+// TestFlushGivesUpAfterRepeatedConflicts below would pass at either budget, so
+// without this nothing would notice the constant being lowered again.
+func TestFlushSurvivesTwoConflicts(t *testing.T) {
+	store := &fakeStore{count: 50, version: 1, exists: true, conflict: 2}
+	c := newCounter()
+	c.inc()
+
+	if err := c.flush(context.Background(), store); err != nil {
+		t.Fatalf("flush should survive two conflicts with %d attempts: %v", visitorFlushAttempts, err)
+	}
+	// The fake adds 100 to the stored value on each conflict, so the visit must
+	// land on 250 rather than on either value that lost.
+	if store.count != 251 {
+		t.Errorf("stored %d, want 251 - the last attempt must build on the value that won", store.count)
 	}
 }
 
