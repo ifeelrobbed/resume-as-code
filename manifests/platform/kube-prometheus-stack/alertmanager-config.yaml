@@ -31,12 +31,30 @@ spec:
     #
     # groupInterval/repeatInterval are set here rather than inherited: the
     # parent's 4h is right for real alerts reaching Discord and far too slow
-    # for a heartbeat, which would make detection 4h + grace. 10m of ping
-    # against 30m of grace at healthchecks.io detects a dead cluster inside
-    # ~40 minutes while leaving roughly 3.5x margin over the ~8 minutes
-    # Alertmanager was actually unavailable during the node reimage in #140.
-    # That margin is the point: too tight a grace turns every routine node
-    # upgrade into a page, which is the problem #139 just finished removing.
+    # for a heartbeat, which would make detection 4h + grace. A ping every
+    # 10m against 30m of grace at healthchecks.io detects a dead cluster
+    # inside ~40 minutes while leaving roughly 3.5x margin over the ~8
+    # minutes Alertmanager was actually unavailable during the node reimage
+    # in #140. That margin is the point: too tight a grace turns every
+    # routine node upgrade into a page, which is the problem #139 just
+    # finished removing.
+    #
+    # repeatInterval is 9m, not the 10m that cadence implies, and the
+    # difference is load-bearing. The dispatcher only reconsiders a group on
+    # groupInterval ticks, and at each one asks whether repeatInterval has
+    # elapsed since the last notification - but "last" is stamped after the
+    # webhook round-trip returns, so it lands a few milliseconds past the
+    # tick it was sent on. At the 10m tick the elapsed time is therefore
+    # 10m minus that delta, just short of a 10m repeatInterval, so the check
+    # fails and the ping slips to the 15m tick. Measured at a flat 15.0m
+    # before this was changed - not jitter, since any repeatInterval that is
+    # an exact multiple of groupInterval misses by the same delta every time
+    # and slips one tick, permanently.
+    #
+    # 9m clears the 10m tick with a full minute of headroom against a delta
+    # measured in milliseconds. Anything strictly between groupInterval and
+    # 2x groupInterval works; the value only has to avoid landing on a tick
+    # boundary. Changing groupInterval means revisiting this.
     #
     # Kept as a separate entry from the InfoInhibitor route below rather than
     # merged into one `alertname =~ ...` matcher - they now go to different
@@ -48,7 +66,7 @@ spec:
             value: Watchdog
             matchType: "="
         groupInterval: 5m
-        repeatInterval: 10m
+        repeatInterval: 9m
       # InfoInhibitor is plumbing for the inhibitRules below, not an alert -
       # its own annotation says it "should be routed to a null receiver".
       # Upstream silences it differently: not via this route at all, but with
