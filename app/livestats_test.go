@@ -7,8 +7,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -258,5 +258,121 @@ func TestRefreshArgoSyncPreservesCacheOnFailure(t *testing.T) {
 	}
 	if !updated2.Equal(updatedAt) {
 		t.Error("updatedAt moved on a failed poll")
+	}
+}
+
+// The uptime panel stopped reading this process's own startTime in #141, so
+// the value now has to survive a round trip through Prometheus's encoding.
+// Sample values arrive as JSON *strings* rather than numbers - that is how
+// NaN and ±Inf survive - which is the part most likely to be got wrong.
+func TestQueryPodStart(t *testing.T) {
+	const okBody = `{"status":"success","data":{"resultType":"vector","result":[` +
+		`{"metric":{},"value":[1789055367.159,"1789023215.21"]}]}}`
+
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		want        time.Time
+		wantNoData  bool
+		wantSomeErr bool
+	}{
+		{
+			// The value, not the sample's own timestamp. Reading index 0
+			// would silently report "started just now", forever.
+			name:   "fractional epoch is parsed from the sample value",
+			status: http.StatusOK,
+			body:   okBody,
+			want:   time.Unix(1789023215, 210000000),
+		},
+		{
+			// Whole seconds, the common case - no fractional part to lose.
+			name:   "integer epoch",
+			status: http.StatusOK,
+			body:   `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1789055367,"1789023215"]}]}}`,
+			want:   time.Unix(1789023215, 0),
+		},
+		{
+			// Prometheus is up but nothing is scraping the app - unknown,
+			// which the panel renders as a dash rather than a zero uptime.
+			name:       "empty result",
+			status:     http.StatusOK,
+			body:       `{"status":"success","data":{"resultType":"vector","result":[]}}`,
+			wantNoData: true,
+		},
+		{
+			// max() collapses to one series, so more than one means the query
+			// is no longer the one this function documents. Picking the first
+			// would hide that.
+			name:   "more than one series",
+			status: http.StatusOK,
+			body: `{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{},"value":[1789055367,"1789023215"]},` +
+				`{"metric":{},"value":[1789055367,"1789023999"]}]}}`,
+			wantSomeErr: true,
+		},
+		{
+			// NaN is what an aggregation over no samples produces. It parses
+			// as a float perfectly well, and time.Unix would turn it into a
+			// nonsense date rather than an error.
+			name:        "NaN is rejected rather than becoming a date",
+			status:      http.StatusOK,
+			body:        `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1789055367,"NaN"]}]}}`,
+			wantSomeErr: true,
+		},
+		{
+			name:        "non-200 is an error, not an empty result",
+			status:      http.StatusServiceUnavailable,
+			body:        "down",
+			wantSomeErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := queryPodStart(testClient(), prometheusStub(t, tc.status, tc.body))
+			switch {
+			case tc.wantNoData:
+				if !errors.Is(err, errNoData) {
+					t.Fatalf("got err %v, want errNoData", err)
+				}
+			case tc.wantSomeErr:
+				if err == nil {
+					t.Fatalf("got %v with no error, want an error", got)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				// Compared with tolerance rather than for equality. A float64
+				// cannot hold an epoch of this magnitude to the nanosecond -
+				// 1789023215.21 comes back ~38ns out - so exact equality
+				// would be asserting precision the wire format does not
+				// carry. A millisecond is far below what an uptime rounded
+				// to the second can show, and still catches the mistakes
+				// worth catching: reading the wrong array index, or dropping
+				// the fractional part entirely.
+				if d := got.Sub(tc.want); d > time.Millisecond || d < -time.Millisecond {
+					t.Errorf("got %v, want %v (off by %v)", got.UTC(), tc.want.UTC(), d)
+				}
+			}
+		})
+	}
+}
+
+// A failed poll has to leave the previous start instant in place, matching the
+// sparkline and argo caches. Blanking it would make the panel flicker to a
+// dash on one bad scrape of a value that only changes when a pod restarts.
+func TestPodStartCacheHoldsValueAcrossFailure(t *testing.T) {
+	var cache podStartCache
+	if _, loaded := cache.get(); loaded {
+		t.Fatal("a zero cache reports loaded, so the panel would render a bogus uptime before the first poll")
+	}
+
+	want := time.Unix(1789023215, 0)
+	cache.set(want)
+	got, loaded := cache.get()
+	if !loaded || !got.Equal(want) {
+		t.Fatalf("got %v loaded=%v, want %v true", got, loaded, want)
 	}
 }

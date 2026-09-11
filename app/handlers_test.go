@@ -378,6 +378,11 @@ func TestOnlyQueryBackedPanelsShowAQuery(t *testing.T) {
 		"req/s":      s.RequestRateSource,
 		"p95":        s.P95LatencySource,
 		"error rate": s.ErrorRateSource,
+		// Moved here from withoutQuery by #141: uptime used to be measured by
+		// the process itself and legitimately had no query to show. It now
+		// reads process_start_time_seconds out of Prometheus, so a missing
+		// query would be the bug this test exists to catch.
+		"pod uptime": s.UptimeSource,
 	}
 	for name, src := range withQuery {
 		if src.Query == "" {
@@ -387,7 +392,6 @@ func TestOnlyQueryBackedPanelsShowAQuery(t *testing.T) {
 
 	withoutQuery := map[string]StatSource{
 		"visitors":    s.VisitorSource,
-		"uptime":      s.UptimeSource,
 		"last deploy": s.LastDeploySource,
 	}
 	for name, src := range withoutQuery {
