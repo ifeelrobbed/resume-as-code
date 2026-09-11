@@ -181,6 +181,7 @@ func main() {
 		go pollVisitors(ctx, &visitors, store)
 	}
 	go pollArgoSync(ctx, &argoSync)
+	go pollPodStart(ctx, &podStart)
 	go pollSparkline(ctx, "request rate", requestRateQuery, &requestRate)
 	go pollSparkline(ctx, "p95 latency", p95LatencyQuery, &p95Latency)
 	go pollSparkline(ctx, "error rate", errorRateQuery, &errorRate)

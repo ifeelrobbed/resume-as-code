@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -387,6 +388,106 @@ func queryArgoApps(client *http.Client, baseURL string) ([]argoApp, error) {
 	}
 	slices.SortFunc(apps, func(a, b argoApp) int { return strings.Compare(a.Name, b.Name) })
 	return apps, nil
+}
+
+// The homepage's uptime panel reads this rather than the process's own
+// startTime var, which is per-process and therefore wrong the moment there is
+// more than one replica: two pods start at different times, so the number
+// would flip between two values as refreshes landed on different pods (#141).
+//
+// max, not min, and the distinction is the whole point. process_start_time_
+// seconds is a gauge whose *value* is an absolute Unix epoch, so the largest
+// value is the most recently started pod - the one with the shortest uptime,
+// and the only one that reveals a restart. Reporting the oldest pod would hide
+// exactly the event worth seeing.
+//
+// Retention does not apply here, unlike the 24h sparkline windows above. This
+// reads one current sample whose value happens to point far into the past, not
+// a counter accumulated across a window, so a pod up longer than Prometheus'
+// 15d retention still reports correctly - and a wiped TSDB self-heals after a
+// single scrape, which the in-process var cannot do.
+const podStartQuery = `max(process_start_time_seconds{job="resume-site"})`
+
+// The value only changes when a pod restarts, so this poll exists to notice
+// that rather than to keep a number fresh. Uptime itself is computed at render
+// time from the cached start instant, which is why it still ticks by the
+// second between polls.
+const podStartPollInterval = 60 * time.Second
+
+// podStartCache holds the youngest pod's start instant. Like the sparkline and
+// argo caches, a failed poll leaves the previous value in place rather than
+// blanking the panel on one bad scrape.
+type podStartCache struct {
+	mu      sync.RWMutex
+	started time.Time
+	loaded  bool
+}
+
+var podStart podStartCache
+
+func (c *podStartCache) get() (time.Time, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.started, c.loaded
+}
+
+func (c *podStartCache) set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.started, c.loaded = t, true
+}
+
+func pollPodStart(ctx context.Context, cache *podStartCache) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	for {
+		started, err := queryPodStart(client, prometheusURL)
+		if err != nil {
+			log.Printf("pod start poll: %v (keeping last value)", err)
+		} else {
+			cache.set(started)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(podStartPollInterval):
+		}
+	}
+}
+
+// queryPodStart reads the aggregated start time as an instant value. Unlike
+// queryArgoApps this wants the sample's value rather than its labels, and the
+// aggregation already reduced it to one series - more than one would mean the
+// query changed, so it is an error rather than a silent pick-the-first.
+func queryPodStart(client *http.Client, baseURL string) (time.Time, error) {
+	u := baseURL + "/api/v1/query?query=" + url.QueryEscape(podStartQuery)
+
+	var pr prometheusInstantResponse
+	if err := getPrometheusJSON(client, u, &pr); err != nil {
+		return time.Time{}, err
+	}
+	if len(pr.Data.Result) == 0 {
+		return time.Time{}, errNoData
+	}
+	if len(pr.Data.Result) > 1 {
+		return time.Time{}, fmt.Errorf("pod start: expected one series from an aggregation, got %d", len(pr.Data.Result))
+	}
+
+	// Prometheus encodes sample values as JSON strings, not numbers, so that
+	// NaN and ±Inf survive the round trip.
+	raw, ok := pr.Data.Result[0].Value[1].(string)
+	if !ok {
+		return time.Time{}, fmt.Errorf("pod start: sample value was %T, not a string", pr.Data.Result[0].Value[1])
+	}
+	secs, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("pod start: parsing %q: %w", raw, err)
+	}
+	if math.IsNaN(secs) || math.IsInf(secs, 0) || secs <= 0 {
+		return time.Time{}, fmt.Errorf("pod start: %q is not a usable epoch", raw)
+	}
+
+	sec, frac := math.Modf(secs)
+	return time.Unix(int64(sec), int64(frac*1e9)), nil
 }
 
 // prometheusInstantResponse is the shape of an instant query - a vector of

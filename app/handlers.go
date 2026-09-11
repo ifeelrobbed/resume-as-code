@@ -172,6 +172,21 @@ func stats() Stats {
 		errorCurrent = fmt.Sprintf("%.2f%%", errorPoints[n-1]*100)
 	}
 
+	// Computed here from the cached start instant rather than read as a
+	// pre-formatted number, so it advances every second between the minute-
+	// apart polls behind it.
+	//
+	// A dash when Prometheus is unreachable, rather than falling back to this
+	// process's own startTime. That fallback is tempting and currently
+	// accurate - there is one replica - but it is exactly the per-pod number
+	// #141 removed, and it would start disagreeing between pods the moment
+	// #142 adds a second. /status keeps the local value for the pod-level
+	// question; this panel does not answer that question.
+	uptime := "—"
+	if started, ok := podStart.get(); ok {
+		uptime = time.Since(started).Round(time.Second).String()
+	}
+
 	// Panel provenance (#48). The queries are the same constants the pollers
 	// run, referenced rather than retyped, so a tooltip cannot drift into
 	// describing a query the app no longer makes.
@@ -194,10 +209,13 @@ func stats() Stats {
 			Notes:  visitorNotes,
 		},
 		UptimeSource: StatSource{
-			Source: "Measured by the app itself",
+			Source: "Prometheus, from the pods' own process metrics",
+			Query:  podStartQuery,
 			Notes: []string{
-				"time since this pod started serving",
-				"resets on every deploy, so it tracks the pod rather than the site",
+				"the youngest pod's process start time, counted forward",
+				"a pod, not the site — it resets whenever a pod restarts, deploy or not",
+				"below last deploy means something restarted the pods on its own",
+				"reads — when Prometheus cannot be reached",
 			},
 		},
 		LastDeploySource: StatSource{
@@ -240,7 +258,7 @@ func stats() Stats {
 				"reports nothing at all while there are no errors, which is why this can read —",
 			},
 		},
-		Uptime:                  time.Since(startTime).Round(time.Second).String(),
+		Uptime:                  uptime,
 		LastDeploy:              buildTime,
 		SyncStatus:              syncStatus,
 		SyncAllHealthy:          syncAllHealthy,
