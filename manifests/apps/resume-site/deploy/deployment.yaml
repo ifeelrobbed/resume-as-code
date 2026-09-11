@@ -4,7 +4,23 @@ metadata:
   name: resume-site
   namespace: resume-site
 spec:
-  replicas: 1
+  # Two, so a drain has somewhere to send traffic. One replica meant every node
+  # reimage took the site down for the few minutes between the only pod being
+  # evicted and its replacement passing readiness on the new node - which the
+  # node pool's max_surge already went to the trouble of making avoidable, by
+  # bringing up the replacement node before recycling the old one (#140). The
+  # window to stay up existed; there was just nothing to stay up with.
+  #
+  # Two costs 50m CPU and 32Mi more on a node with 2 vCPU. Alongside the
+  # PodDisruptionBudget in pdb.yaml this turns a scheduled reimage from a brief
+  # outage into a non-event, which matters now that reimages happen on a
+  # declared weekly window rather than whenever Azure chose (#142).
+  #
+  # Not an availability claim beyond that: both pods sit on the same single
+  # node most of the time, so this survives pod-level disruption, not node
+  # loss. Surviving the node needs a second node, which is a cost decision
+  # (#118), not a manifest one.
+  replicas: 2
   selector:
     matchLabels:
       app: resume-site
@@ -21,6 +37,25 @@ spec:
       # Paired with the label above and the annotation on this ServiceAccount;
       # all three are required for the token exchange (#75).
       serviceAccountName: resume-site
+      # preferred, not required, and the distinction is load-bearing on a
+      # one-node pool. required would leave the second replica Pending forever
+      # in steady state, since there is no second node to satisfy it - turning
+      # a two-replica Deployment into a one-replica one with a permanently
+      # unschedulable pod, which is worse than not asking.
+      #
+      # preferred does nothing most of the time and everything during an
+      # upgrade: while max_surge has a replacement node up, the scheduler has
+      # somewhere better to put a pod, and spreading across the two is exactly
+      # what lets the drain proceed without the PDB blocking it.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: resume-site
+                topologyKey: kubernetes.io/hostname
       # The image already runs as distroless' nonroot user, but nothing here
       # said so - a base image change could have flipped that silently, with
       # no signal. Declaring it makes non-root the cluster's guarantee rather
