@@ -5,6 +5,36 @@ metadata:
   namespace: resume-site
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Pins a reader to one replica for the length of their visit, which the
+    # visitor count needs and nothing else here does. Each pod holds its own
+    # unflushed visits (see visitorCounter in app/visitors.go), so the two
+    # display totals differing by a handful between flushes is expected - but a
+    # reader bounced between them mid-refresh would watch the number go
+    # *backwards*, on the one panel whose whole claim is that it is live.
+    #
+    # This does not make the pods agree; #151 keeps them converging by
+    # re-reading the stored total every flush interval. It makes one reader's
+    # view monotonic, which is the part that is visible.
+    #
+    # Set on the Ingress rather than as the Service's sessionAffinity: ClientIP
+    # would do nothing here, because ingress-nginx proxies straight to pod IPs
+    # and never goes through the Service's kube-proxy rules.
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    # balanced, not persistent: persistent keeps a reader pinned to a pod even
+    # as endpoints change, which during a drain means pinning them to the pod
+    # that is going away. balanced re-hashes when the backend set changes,
+    # which is the behaviour wanted during exactly the node reimage this whole
+    # change exists to survive.
+    nginx.ingress.kubernetes.io/affinity-mode: "balanced"
+    nginx.ingress.kubernetes.io/session-cookie-name: "resume-site-backend"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+    # Deliberately no session-cookie-max-age or -expires, which makes this a
+    # session cookie: it holds no identifier, is read only by nginx to pick a
+    # backend, and is gone when the browser closes. Persisting it across
+    # sessions would buy nothing - the jitter it exists to hide only happens
+    # within a single sitting - while turning a strictly-functional cookie into
+    # something a visitor might reasonably want told about.
 spec:
   ingressClassName: nginx
   # www has to be on the certificate because TLS is negotiated before anything

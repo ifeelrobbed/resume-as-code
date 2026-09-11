@@ -1,0 +1,32 @@
+# Without this, a drain evicts both replicas at once and the extra pod bought
+# nothing - kubectl drain has no obligation to stagger evictions, and the
+# rolling-update strategy only governs deploys, not node maintenance.
+#
+# minAvailable: 1 rather than maxUnavailable: 1. They are equivalent at two
+# replicas, and they stop being equivalent the moment that number changes:
+# minAvailable keeps stating the thing worth guaranteeing (someone is serving),
+# while maxUnavailable would silently permit more simultaneous eviction as the
+# replica count grew.
+#
+# The first app-level PDB here - every other one in this cluster belongs to a
+# platform component (kube-system, calico-system) and came with its chart.
+#
+# The failure mode to understand before changing this: a PDB can block a drain
+# indefinitely. If both replicas are on the node being drained and nowhere else
+# can take the evicted one, Kubernetes will not evict the second, and the drain
+# waits. That is the intended behaviour - the node pool sets max_unavailable: 0
+# (infra/modules/aks/main.tf), so a blocked drain stalls the upgrade rather
+# than forcing through it and taking the site down, which is the trade being
+# chosen deliberately. It works in practice because max_surge brings up a
+# replacement node first, giving the evicted pod somewhere to land; the soft
+# anti-affinity in deployment.yaml is what encourages it to go there.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: resume-site
+  namespace: resume-site
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: resume-site
