@@ -74,11 +74,83 @@ resource "azurerm_kubernetes_cluster" "this" {
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
+  # Both channels below were previously undeclared, which meant Azure's
+  # defaults decided when this cluster got reimaged. That is how the node
+  # reimage at 01:37 on 2026-09-10 happened with nothing in this repo
+  # describing it (#140) - node_os_upgrade_channel defaults to "NodeImage"
+  # whether or not it appears here. The upgrade_settings block below already
+  # documents how disruptive a reimage is; leaving out what *triggers* one
+  # declared only half of it.
+  #
+  # NodeImage keeps the existing behaviour - weekly-ish node image updates
+  # carrying OS security patches. The alternatives are SecurityPatch (patch
+  # in place, no image swap), None (nothing, and the node drifts), and
+  # Unmanaged (Ubuntu's own unattended-upgrades). NodeImage stays because
+  # patched images are worth taking and the disruption is now bounded by a
+  # window rather than arbitrary.
+  node_os_upgrade_channel = "NodeImage"
+
+  # "patch" tracks the latest patch release of the current minor - security
+  # fixes, without ever crossing a minor boundary. That boundary is the whole
+  # risk: patch releases do not remove APIs, so nothing running here (Calico,
+  # Argo CD, cert-manager, the kube-prometheus-stack CRDs) can break on an
+  # API removal. "stable" and "rapid" do advance minors, and with no staging
+  # environment prod would be where that got discovered.
+  #
+  # Minor upgrades therefore stay a deliberate decision. This does not make
+  # the cluster maintenance-free - it makes it patched.
+  automatic_upgrade_channel = "patch"
+
+  # Two blocks, not one, and this is easy to get wrong: maintenance_window_
+  # node_os bounds node image upgrades, maintenance_window_auto_upgrade
+  # bounds Kubernetes version upgrades. Setting a channel without its
+  # matching window leaves that channel firing whenever Azure likes, which
+  # is the exact problem #140 exists to fix.
+  #
+  # Sunday 21:00-01:00 UTC is 16:00-20:00 CDT - awake and able to react - and
+  # runs from late evening into the small hours across Europe (roughly
+  # 21:00-03:00 local depending on the zone and the season), where a good
+  # part of this site's audience is. 4h is the minimum the API accepts, so a
+  # tighter window is not available. utc_offset stays +00:00 rather than
+  # tracking a local zone, since Azure does not follow DST and a fixed offset
+  # would silently shift the real local time twice a year.
+  #
+  # Both windows are the same slot deliberately: every disruption this
+  # cluster takes on purpose lands in one predictable four hours a week.
+  maintenance_window_node_os {
+    frequency   = "Weekly"
+    interval    = 1
+    day_of_week = "Sunday"
+    start_time  = "21:00"
+    utc_offset  = "+00:00"
+    duration    = 4
+  }
+
+  maintenance_window_auto_upgrade {
+    frequency   = "Weekly"
+    interval    = 1
+    day_of_week = "Sunday"
+    start_time  = "21:00"
+    utc_offset  = "+00:00"
+    duration    = 4
+  }
+
   tags = var.tags
 
   lifecycle {
-    # Avoid unplanned diffs when Azure deprecates a minor version out
-    # from under an unpinned cluster; bump this deliberately via PR instead.
+    # Originally here to avoid unplanned diffs when Azure deprecates a minor
+    # version out from under an unpinned cluster, on the understanding that
+    # version bumps would be made deliberately via PR. With
+    # automatic_upgrade_channel = "patch" that is no longer what happens:
+    # Azure moves the patch version on its own, inside the maintenance
+    # window, and this is what stops Terraform trying to drag it back on the
+    # next apply.
+    #
+    # So var.kubernetes_version is a floor, not a pin - it decides what the
+    # cluster is built with, and nothing after that. Reading it as the
+    # running version will be wrong; `az aks show` is the source of truth.
+    # Pinning again means removing this and setting the channel to "none",
+    # which has to be both or neither.
     ignore_changes = [kubernetes_version]
   }
 }
