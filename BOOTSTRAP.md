@@ -165,22 +165,41 @@ Print the initial admin password, change it, then delete
 
 ## 6. In-cluster secrets
 
-**Why not in code:** no secrets management yet — no Key Vault, no CSI driver,
-no workload identity federation. The cluster has `oidc_issuer_enabled` and
-`workload_identity_enabled` on, so adding it is a small change when a second
-secret makes it worth doing.
+**Why not in code:** no secrets management for these — no Key Vault, no CSI
+driver, nothing federating them in. The cluster has `oidc_issuer_enabled` and
+`workload_identity_enabled` on and already uses both for the app's Blob
+Storage access, so the missing piece is delivery of static third-party
+credentials, not identity.
+
+This section used to say adding it was worth doing "when a second secret makes
+it worth doing". There are now two, so that condition has been met — tracked in
+#145. Until then both are created by hand and exist only in the cluster.
 
 | Secret | Namespace | Contents |
 |---|---|---|
 | `alertmanager-discord-webhook` | `monitoring` | key `webhook-url` — the Discord webhook Alertmanager posts to |
+| `alertmanager-healthchecks-heartbeat` | `monitoring` | key `url` — the healthchecks.io ping URL Watchdog is routed to |
 
 ```bash
 kubectl -n monitoring create secret generic alertmanager-discord-webhook \
   --from-literal=webhook-url='<discord-webhook-url>'
+
+kubectl -n monitoring create secret generic alertmanager-healthchecks-heartbeat \
+  --from-literal=url='<healthchecks-io-ping-url>'
 ```
 
-Referenced by `manifests/platform/kube-prometheus-stack/alertmanager-config.yaml`
-as a `SecretKeySelector`.
+Both are referenced by
+`manifests/platform/kube-prometheus-stack/alertmanager-config.yaml` as
+`SecretKeySelector`s, and neither needs adding to
+`alertmanagerSpec.secrets` — the operator resolves the selector through the
+API and inlines the value into the generated config, so no pod mount is
+involved.
+
+Both are bearer credentials with no expiry: anyone holding the Discord URL can
+post to the channel, and anyone holding the ping URL can suppress the
+dead-man's-switch alarm by pinging it. Rotating either means recreating the
+Secret; the operator re-reads it and Alertmanager reloads within a minute or
+so, with no manifest change required.
 
 ## 7. Grafana public dashboard
 
@@ -321,8 +340,12 @@ Delete it once the rebuild is verified; it bills on used data while it exists.
    new principal, and the node resource group is repopulated.
 2. **`./bootstrap/install-argocd.sh`.** Installs Argo CD and applies
    `manifests/root.yaml`; the app-of-apps takes over from there.
-3. **Recreate the Discord webhook secret** - section 6. Alertmanager will run
-   without it but every notification fails.
+3. **Recreate both Alertmanager secrets** - section 6. Alertmanager runs
+   without them, but every Discord notification fails and the healthchecks.io
+   heartbeat stops. The heartbeat is the one that bites: a rebuild that skips
+   it looks fine from inside the cluster while healthchecks.io alarms on a
+   dead man's switch that is not actually dead. Recreate it before the grace
+   window (30m) expires, or pause the check while rebuilding.
 4. **Re-enable the Grafana Public Dashboard share** - section 7. This produces a
    *new* token, so update `GRAFANA_DASHBOARD_URL` in
    `manifests/apps/resume-site/deploy/deployment.yaml` and merge. A one-line
