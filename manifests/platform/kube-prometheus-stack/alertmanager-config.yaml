@@ -15,24 +15,40 @@ spec:
     groupWait: 30s
     groupInterval: 5m
     repeatInterval: 4h
-    # The chart's own default Watchdog -> "null" silencing (a permanent
-    # dead-man's-switch alert, meant for an external consumer that does not
-    # exist here) only applied via the raw `config:` value's hardcoded
-    # defaults - bypassed entirely now that alertmanagerConfiguration
-    # replaces that whole mechanism, so it has to be redone explicitly here
-    # or Watchdog would fire into Discord every repeat_interval, forever.
+    # Watchdog is the chart's dead-man's-switch: it fires permanently, by
+    # design, so that its *absence* means something. The chart's raw `config:`
+    # value silenced it with a "null" route, since a dead man's switch with no
+    # external consumer is just noise - and bypassing that value meant the
+    # silencing had to be redone explicitly here (#139).
     #
-    # Kept as two entries rather than one `alertname =~ "InfoInhibitor|
-    # Watchdog"` matcher because they are silenced for unrelated reasons and
-    # are expected to diverge: Watchdog is a candidate for being pointed at an
-    # external heartbeat receiver (#139) rather than discarded, and merging
-    # them now would only have to be unmerged then.
+    # There is an external consumer now, so it is routed rather than
+    # discarded. Sending it to healthchecks.io inverts the direction of the
+    # only gap the in-cluster blackbox exporter structurally cannot cover:
+    # nothing probes in, the cluster pings out, and the alarm is the ping not
+    # arriving. An outage that takes the prober down with it - the exact case
+    # blackbox misses, because it lives in the cluster it watches - now has
+    # something outside the cluster noticing.
+    #
+    # groupInterval/repeatInterval are set here rather than inherited: the
+    # parent's 4h is right for real alerts reaching Discord and far too slow
+    # for a heartbeat, which would make detection 4h + grace. 10m of ping
+    # against 30m of grace at healthchecks.io detects a dead cluster inside
+    # ~40 minutes while leaving roughly 3.5x margin over the ~8 minutes
+    # Alertmanager was actually unavailable during the node reimage in #140.
+    # That margin is the point: too tight a grace turns every routine node
+    # upgrade into a page, which is the problem #139 just finished removing.
+    #
+    # Kept as a separate entry from the InfoInhibitor route below rather than
+    # merged into one `alertname =~ ...` matcher - they now go to different
+    # receivers, so there was never anything to merge.
     routes:
-      - receiver: "null"
+      - receiver: heartbeat
         matchers:
           - name: alertname
             value: Watchdog
             matchType: "="
+        groupInterval: 5m
+        repeatInterval: 10m
       # InfoInhibitor is plumbing for the inhibitRules below, not an alert -
       # its own annotation says it "should be routed to a null receiver".
       # Upstream silences it differently: not via this route at all, but with
@@ -40,8 +56,11 @@ spec:
       # InfoInhibitor]` and nothing else), which lets any firing alert inhibit
       # it - permanently, in practice, because Watchdog always fires. That is
       # indirect enough to be worth replacing with an explicit route: this
-      # does not quietly stop working if Watchdog is ever silenced, disabled,
-      # or (per the comment above) routed somewhere real.
+      # does not quietly stop working if Watchdog is ever silenced or
+      # disabled. Routing Watchdog to the heartbeat above does not itself
+      # affect that - it still fires, so it would still inhibit - but it does
+      # turn Watchdog's configuration into something that gets edited rather
+      # than a constant, which is exactly when an indirect dependency breaks.
       #
       # Routing it to "null" does not affect its use as an inhibition source
       # in rule 3 below - inhibition is evaluated over the firing alert set,
@@ -58,6 +77,28 @@ spec:
         - apiURL:
             name: alertmanager-discord-webhook
             key: webhook-url
+
+    # sendResolved is false, and that is the whole correctness argument for
+    # this receiver. A plain POST to an hc-ping.com URL means "healthy". If
+    # Watchdog ever stops firing, Alertmanager would - with sendResolved true
+    # - POST a resolved notification, which healthchecks.io cannot tell apart
+    # from a normal heartbeat. The switch would report success at precisely
+    # the moment it was dying. Silence has to stay the only signal.
+    #
+    # urlSecret rather than url: the ping URL is a bearer credential, and
+    # anyone holding it can suppress the alarm by pinging it themselves.
+    # Referenced by Secret the same way the Discord webhook is, so it never
+    # lands in this repo. Unlike that one it is NOT added to
+    # alertmanagerSpec.secrets - the operator resolves a SecretKeySelector
+    # through the API and inlines the value into the generated config, so no
+    # pod mount is involved (confirmed by the Discord URL already appearing
+    # inlined there).
+    - name: heartbeat
+      webhookConfigs:
+        - urlSecret:
+            name: alertmanager-healthchecks-heartbeat
+            key: url
+          sendResolved: false
 
   # Lost the same way the Watchdog route was, except these were never re-added
   # and had been missing since the switch to alertmanagerConfiguration (#139).
