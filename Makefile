@@ -55,7 +55,7 @@ OG_IMAGE_BG := \#15171D
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 GIT_REVISION := $(shell git rev-parse --short=7 HEAD)
 
-.PHONY: help fmt vet build test app-check yamllint kubeconform promql-test manifests-check \
+.PHONY: help fmt fmt-fix vet build test app-check yamllint kubeconform promql-test manifests-check \
 	dry-run docker-build docker-run docker-test docker-stop docker-clean og-image run check
 
 help: ## Show this help
@@ -63,8 +63,11 @@ help: ## Show this help
 
 ## --- Go app (mirrors .github/workflows/app-ci.yml) ---
 
-fmt: ## List any Go files gofmt would reformat (CI doesn't gate on this, but keep it clean)
-	cd $(APP_DIR) && gofmt -l .
+fmt: ## Fail if any Go file needs gofmt (same gate as app-ci.yml)
+	@cd $(APP_DIR) && test -z "$$(gofmt -l .)" || { echo "gofmt would reformat:"; gofmt -l .; exit 1; }
+
+fmt-fix: ## Rewrite any Go files gofmt would reformat
+	cd $(APP_DIR) && gofmt -w .
 
 vet: ## go vet ./...
 	cd $(APP_DIR) && go vet ./...
