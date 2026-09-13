@@ -55,10 +55,18 @@ jobs:
           go-version-file: app/go.mod
           cache-dependency-path: app/go.sum
 
-      - name: vet, build, test
+      - name: fmt, vet, build, test
         if: steps.changes.outputs.relevant == 'true'
         working-directory: app
         run: |
+          # gofmt reports by printing filenames and exits 0 either way, so it
+          # cannot gate anything on its own - which is how two files stayed
+          # drifted across four PRs (#133). test -z turns "it printed
+          # something" into a failure; the second gofmt -l then prints the
+          # names again, because the first one's output was swallowed by the
+          # command substitution and a bare "exit 1" would say nothing about
+          # which file.
+          test -z "$(gofmt -l .)" || { echo "gofmt would reformat:"; gofmt -l .; exit 1; }
           go vet ./...
           go build ./...
           go test ./...
