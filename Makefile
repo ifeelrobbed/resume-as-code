@@ -21,7 +21,11 @@ KUBECONFORM := $(BIN_DIR)/kubeconform
 PROMQL_RULES_OUT := $(BIN_DIR)/promql-rules
 YAMLLINT_CONFIG := {extends: default, rules: {line-length: disable, document-start: disable}}
 DOCKER_IMAGE := resume-site-local
+# Both listeners get published, offset by one from the ports the container
+# actually listens on (8080/9090) so a local Prometheus or a `make run` already
+# holding those doesn't collide with the smoke test.
 DOCKER_PORT := 8081
+DOCKER_METRICS_PORT := 9091
 # The link-preview card. The SVG is the source; the PNG is what crawlers get,
 # and it is committed rather than built during the image build so the app image
 # needs no rasteriser and CI needs no extra tooling. That trade means the two
@@ -123,17 +127,34 @@ docker-build: ## Build the app image locally, with the same build-args CI uses
 
 docker-run: docker-build ## Build and run the app image locally in the background
 	@docker rm -f $(DOCKER_IMAGE) >/dev/null 2>&1 || true
-	docker run --rm -d -p $(DOCKER_PORT):8080 --name $(DOCKER_IMAGE) $(DOCKER_IMAGE)
+	docker run --rm -d -p $(DOCKER_PORT):8080 -p $(DOCKER_METRICS_PORT):9090 --name $(DOCKER_IMAGE) $(DOCKER_IMAGE)
 	@sleep 1
-	@echo "Running at http://localhost:$(DOCKER_PORT) - try: curl http://localhost:$(DOCKER_PORT)/metrics"
+	@echo "Running at http://localhost:$(DOCKER_PORT) - try: curl http://localhost:$(DOCKER_METRICS_PORT)/metrics"
 
+# Two ports, because the app has two listeners and the smoke test should cover
+# the same split the Deployment runs: newMux serves the public routes and
+# deliberately does not register /metrics, newMetricsMux serves /metrics alone
+# on the admin port the Ingress never routes to. The reasoning for that split is
+# on newMux/newMetricsMux in app/main.go. Probing /metrics on the public port
+# is what this target used to do, and it 404s.
+#
+# The whole run is one shell with an EXIT trap rather than a recipe line per
+# probe: a failing curl otherwise aborts make before the teardown line, leaving
+# the container up to fail the next run on the port instead of on the real
+# cause. The trap fires on success and failure alike, and bash keeps the
+# original exit status, so a failed probe still fails the target.
+#
+# Each probe is `curl; echo`, not `curl && echo`: set -e is specified to ignore
+# a failure anywhere but the last command of an && list, so the && form would
+# swallow every failure this target exists to catch.
 docker-test: docker-run ## Build, run, smoke-test every route, and tear down - the full loop to run before opening an app/ PR
 	@sleep 1
-	curl -sf http://localhost:$(DOCKER_PORT)/ -o /dev/null && echo "GET /        OK"
-	curl -sf http://localhost:$(DOCKER_PORT)/resume -o /dev/null && echo "GET /resume  OK"
-	curl -sf http://localhost:$(DOCKER_PORT)/status -o /dev/null && echo "GET /status  OK"
-	curl -sf http://localhost:$(DOCKER_PORT)/metrics -o /dev/null && echo "GET /metrics OK"
-	$(MAKE) docker-stop
+	@trap '$(MAKE) --no-print-directory docker-stop' EXIT; \
+	set -e; \
+	curl -sf http://localhost:$(DOCKER_PORT)/ -o /dev/null; echo "GET /        OK"; \
+	curl -sf http://localhost:$(DOCKER_PORT)/resume -o /dev/null; echo "GET /resume  OK"; \
+	curl -sf http://localhost:$(DOCKER_PORT)/status -o /dev/null; echo "GET /status  OK"; \
+	curl -sf http://localhost:$(DOCKER_METRICS_PORT)/metrics -o /dev/null; echo "GET /metrics OK (admin port $(DOCKER_METRICS_PORT))"
 
 docker-stop: ## Stop the local test container
 	-docker stop $(DOCKER_IMAGE) >/dev/null 2>&1
