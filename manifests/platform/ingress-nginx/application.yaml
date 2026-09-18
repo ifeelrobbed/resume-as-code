@@ -53,6 +53,57 @@ spec:
             enabled: true
             serviceMonitor:
               enabled: true
+              # Phase 3 of #73. The controller exports 2,194 series, 1,758 of
+              # them histogram buckets across seven families, and nothing in
+              # this repo reads any nginx_ metric - a grep of promql/, the
+              # dashboard and app/ returns nothing at all.
+              #
+              # The issue named three of the seven (request_duration,
+              # request_size, response_size). All seven are dropped here: they
+              # are the same kind of metric with the same justification, and
+              # leaving four behind would have banked half the saving for the
+              # same change.
+              #
+              # Latency is already covered at both ends - the app instruments
+              # its own request duration (resume_site: recording rules) and
+              # blackbox probes it from outside (probe_duration_seconds).
+              # These buckets measure the hop between, which nothing queries.
+              #
+              # Kept, deliberately: _sum and _count for every family above, so
+              # average latency and request volume stay available at ~250
+              # series; nginx_ingress_controller_requests; and
+              # nginx_ingress_controller_ssl_expire_time_seconds, which is the
+              # certificate-expiry signal and not a bucket.
+              #
+              # Nothing needs disabling alongside this. No PrometheusRule
+              # references nginx_ (the chart ships none - its
+              # controller-prometheusrule.yaml is gated off by default and
+              # carries no rules of its own), and no Grafana dashboard does
+              # either: all 26 dashboard ConfigMaps carrying the sidecar's
+              # grafana_dashboard label were checked, nginx_ reference count
+              # zero. PlatformComponentDown does match this target, but via
+              # up{job=~"...ingress-nginx-controller-metrics..."} - a job label
+              # value, not an nginx_ metric, and `up` is synthetic and not
+              # subject to metricRelabelings at all.
+              #
+              # This ServiceMonitor ships no metricRelabelings of its own
+              # (chart default [], confirmed against the live object), so
+              # unlike kubeApiServer there is no chart value being replaced.
+              #
+              # Enumerated rather than written as nginx_ingress_controller_
+              # .*_bucket, matching phases 1 and 2: a wildcard would silently
+              # swallow any histogram family a future chart version adds. The
+              # cost of being explicit is that such a family arrives
+              # un-dropped and has to be noticed - preferred here over the
+              # reverse, where it disappears and nothing says so.
+              #
+              # One line on purpose: a folded (>-) scalar joins lines with
+              # spaces and would stop every alternative after the first from
+              # matching. Verify with `helm template`, not by reading this.
+              metricRelabelings:
+                - action: drop
+                  sourceLabels: [__name__]
+                  regex: nginx_ingress_controller_(request_duration_seconds|response_duration_seconds|connect_duration_seconds|header_duration_seconds|request_size|response_size|bytes_sent)_bucket
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx
