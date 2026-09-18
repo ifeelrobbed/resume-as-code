@@ -170,6 +170,54 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
+          # Phase 2 of #73. Grafana exports 718 distinct metric names, 5,267
+          # series - second only to the apiserver. Three families account for
+          # 2,775 of them and nothing reads any of them:
+          #
+          #   grafana_apiserver_*                    1,897
+          #   grafana_http_response_size_bytes_bucket  510
+          #   grafana_feature_toggles_info             368
+          #
+          # Grafana 13 runs its own aggregated API server, so grafana_apiserver_*
+          # is the same histogram family already dropped at the real apiserver
+          # above, arriving by a second door. feature_toggles_info is one series
+          # per feature flag - a config dump, not telemetry.
+          #
+          # Nothing needs disabling alongside this drop. The only consumer of
+          # any grafana_ metric is the chart's own Grafana Overview dashboard
+          # (templates/grafana/dashboards-1.14/grafana-overview.yaml, live as
+          # ConfigMap kube-prometheus-stack-grafana-overview), and its five
+          # panels read grafana_build_info, grafana_stat_totals_dashboard,
+          # grafana_alerting_result_total and grafana_http_request_duration_
+          # seconds_{bucket,count,sum} - none of which are touched here. Note
+          # it reads request_duration, NOT the response_size histogram dropped
+          # below; those names are close enough to be worth stating. No
+          # default rule references grafana_ at all.
+          #
+          # A keep-list allowlist would cut more - ~4,000 series instead of
+          # ~2,775, by discarding everything not explicitly named. It was
+          # deferred, not beaten on the numbers: an allowlist makes every
+          # metric a future Grafana version adds opt-out by default,
+          # silently, with nothing to report that it happened - the same
+          # "looks identical to healthy" hazard this issue is organised
+          # around, moved from a handful of named rules to the entire unnamed
+          # future. That trade is worth revisiting the day cardinality here
+          # actually needs trimming further; it is the next lever to pull.
+          #
+          # Unlike kubeApiServer above, this ServiceMonitor ships no
+          # metricRelabelings of its own (the grafana subchart defaults it to
+          # [], confirmed against the live object), so there is no chart
+          # default to copy in verbatim here.
+          #
+          # Regex kept on one line for the reason documented above: a folded
+          # (>-) scalar joins lines with spaces and would stop every
+          # alternative after the first from matching. Verify with
+          # `helm template`, not by reading this file.
+          serviceMonitor:
+            metricRelabelings:
+              - action: drop
+                sourceLabels: [__name__]
+                regex: grafana_apiserver_.*|grafana_feature_toggles_info|grafana_http_response_size_bytes_bucket
           # Dashboards/datasources still come entirely from the chart's
           # ConfigMap sidecar (unaffected by this) - this PVC is only for
           # Grafana's own SQLite database (orgs, users, and critically any
