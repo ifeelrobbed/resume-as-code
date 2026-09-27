@@ -13,9 +13,11 @@ spec:
       values: |
         # Default config already ships an http_2xx module - no override
         # needed for the resume-site probe (see probe.yaml).
+        #
+        # CPU was 25m, against a 7-day p99 of ~0.2m (#118).
         resources:
           requests:
-            cpu: 25m
+            cpu: 10m
             memory: 32Mi
   destination:
     server: https://kubernetes.default.svc

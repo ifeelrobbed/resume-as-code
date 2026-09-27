@@ -147,9 +147,13 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # CPU was 50m per replica, against a 7-day p99 of ~0.2m (#118).
+          # Left at 25m rather than cut to observed use: a CPU request is also
+          # a pod's weight when the node is contended, and this is the one
+          # workload the cluster exists for.
           resources:
             requests:
-              cpu: 50m
+              cpu: 25m
               memory: 32Mi
             limits:
               # Memory only, deliberately. CPU is compressible - a runaway can

@@ -13,9 +13,12 @@ spec:
       values: |
         crds:
           enabled: true
+        # CPU was 50m, against a 7-day p99 of ~0.5m (#118). Issuance and
+        # renewal are occasional bursts, and CPU is compressible - a burst
+        # above the request is served from idle capacity, not refused.
         resources:
           requests:
-            cpu: 50m
+            cpu: 10m
             memory: 64Mi
         # Metrics (prometheus.enabled) are already served by default.
         # Flipping prometheus.servicemonitor.enabled to true to create
