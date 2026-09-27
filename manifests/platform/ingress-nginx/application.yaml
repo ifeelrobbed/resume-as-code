@@ -15,9 +15,14 @@ spec:
           # 1 replica: the cluster is a single node, a 2nd replica would
           # just be unschedulable or share the node for no real HA benefit.
           replicaCount: 1
+          # CPU was 100m, against a 7-day p99 of ~1.5m (#118). Requests are
+          # what the scheduler reserves, and defaults like this one had the
+          # single node at 90% reserved while ~10% was used. Left at 50m
+          # rather than cut to observed use: this is the serving path, and a
+          # CPU request is also a pod's weight when the node is contended.
           resources:
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 128Mi
           service:
             annotations:

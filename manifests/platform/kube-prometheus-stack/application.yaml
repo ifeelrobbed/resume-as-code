@@ -46,9 +46,13 @@ spec:
               name: resume-site-discord
             alertmanagerConfigMatcherStrategy:
               type: None
+            # CPU requests across this chart were cut to near observed use
+            # (#118): the single node was 90% reserved while ~10% used, and
+            # these defaults were a large part of the reservation. Each
+            # block notes its 7-day p99. Here: ~0.3m, was 50m.
             resources:
               requests:
-                cpu: 50m
+                cpu: 10m
                 memory: 64Mi
 
         # AKS's control plane is fully Azure-managed - these components
@@ -127,17 +131,21 @@ spec:
             # Argo CD's selfHeal on every re-sync.
             certManager:
               enabled: true
+          # 7-day CPU p99 ~1.7m, was 50m (#118).
           resources:
             requests:
-              cpu: 50m
+              cpu: 10m
               memory: 64Mi
 
         prometheus:
           prometheusSpec:
             retention: 15d
+            # 7-day CPU p99 ~9m, was 100m (#118). Kept well above that:
+            # compaction and WAL replay after a restart are the bursts, and
+            # the heaviest thing here should not be the lowest-weighted.
             resources:
               requests:
-                cpu: 100m
+                cpu: 50m
                 memory: 256Mi
             storageSpec:
               volumeClaimTemplate:
@@ -166,9 +174,11 @@ spec:
             ruleNamespaceSelector: {}
 
         grafana:
+          # 7-day CPU p99 ~5m, was 50m (#118). Dashboard queries are the
+          # bursts, and they are served from idle capacity.
           resources:
             requests:
-              cpu: 50m
+              cpu: 25m
               memory: 128Mi
           # Phase 2 of #73. Grafana exports 718 distinct metric names, 5,267
           # series - second only to the apiserver. Three families account for
@@ -249,15 +259,17 @@ spec:
                 secretName: grafana-tls
 
         kube-state-metrics:
+          # 7-day CPU p99 ~1.3m, was 50m (#118).
           resources:
             requests:
-              cpu: 50m
+              cpu: 10m
               memory: 64Mi
 
         prometheus-node-exporter:
+          # 7-day CPU p99 ~0.9m, was 25m (#118).
           resources:
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 32Mi
   destination:
     server: https://kubernetes.default.svc
