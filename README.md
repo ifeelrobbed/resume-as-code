@@ -6,6 +6,7 @@ and a running demo of the platform under it.
 
 **Live: [robertjcameron.com](https://robertjcameron.com)**
 
+![Heathcheck Status](https://healthchecks.io/b/2/13cb25cd-9b7f-4ebc-acd9-7539681dc1f5.svg)
 [![app-ci](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/app-ci.yml/badge.svg?branch=master)](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/app-ci.yml)
 [![manifests-ci](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/manifests-ci.yml/badge.svg?branch=master)](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/manifests-ci.yml)
 [![terraform-apply](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/terraform-apply.yml/badge.svg?branch=master)](https://github.com/ifeelrobbed/resume-as-code/actions/workflows/terraform-apply.yml)
