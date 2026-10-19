@@ -566,15 +566,20 @@ func TestP95UsesAWindowWideEnoughToHoldASample(t *testing.T) {
 	}
 }
 
-// Touch devices get no hover, so the tooltips are undiscoverable without a
-// prompt. The prompt must exist in the markup; CSS decides who sees it.
-func TestTouchHintIsPresent(t *testing.T) {
+// Nothing marks a panel as having a tooltip, so the page says how to reveal
+// one. Both wordings must exist in the markup; CSS decides which one shows.
+func TestPanelHintIsPresent(t *testing.T) {
 	_, body := renderIndex(t, "")
 	if !strings.Contains(body, `class="grid-hint"`) {
-		t.Error("the touch hint is missing from the page")
+		t.Error("the panel hint is missing from the page")
 	}
 	if n := strings.Count(body, `class="grid-hint"`); n != 1 {
 		t.Errorf("found %d hints, want exactly 1 - repeating it on every grid is noise", n)
+	}
+	for _, class := range []string{"hint-hover", "hint-touch"} {
+		if !strings.Contains(body, `class="`+class+`"`) {
+			t.Errorf("the %s wording is missing from the hint", class)
+		}
 	}
 }
 
