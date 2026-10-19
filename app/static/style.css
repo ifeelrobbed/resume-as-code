@@ -167,22 +167,24 @@ h1, h2, h3 {
 .stat:focus-within .stat-tip { opacity: 1; visibility: visible; }
 @media (prefers-reduced-motion: reduce) { .stat-tip { transition: none; } }
 
-/* Hover reveals the tooltips on a pointer device; a touch screen has no such
-   affordance, so the panels look inert. Shown only where hover genuinely does
-   not exist - (hover: none) asks the device rather than guessing from width,
-   so a narrow desktop window keeps the clean layout and a tablet with a mouse
-   is not told to tap. One hint, not one per grid: the behaviour is the same on
+/* Nothing about a panel says it has a tooltip, on either kind of device, so
+   the hint names the gesture that reveals one. The verb swaps on (hover: none),
+   which asks the device rather than guessing from width: a narrow desktop
+   window still says hover and a tablet with a mouse is not told to tap. The
+   hover wording is the default so a browser that ignores the query gets the
+   more common case. One hint, not one per grid: the behaviour is the same on
    both and repeating it reads as noise. */
-.grid-hint { display: none; }
+.grid-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 8px 0 0;
+}
+.grid-hint::before { content: '\2197  '; }
+.hint-touch { display: none; }
 @media (hover: none) {
-  .grid-hint {
-    display: block;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-tertiary);
-    margin: 8px 0 0;
-  }
-  .grid-hint::before { content: '\2197  '; }
+  .hint-hover { display: none; }
+  .hint-touch { display: inline; }
 }
 
 .stat-tip-source { color: var(--text-primary); font-weight: 600; }
