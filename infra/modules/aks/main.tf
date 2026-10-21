@@ -74,6 +74,36 @@ resource "azurerm_kubernetes_cluster" "this" {
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
+  # The Secrets Store CSI driver and its Azure Key Vault provider, as AKS-
+  # managed DaemonSets in kube-system - the delivery half of #145, moving the
+  # hand-created Alertmanager secrets into Key Vault so a rebuild restores them
+  # rather than depending on a manual step.
+  #
+  # Measured before committing to it, since #118 weighs every new controller
+  # against a single node: 49m CPU / 158Mi memory requested across both
+  # DaemonSets, ~5m / ~67Mi actually used. AKS owns those requests - neither
+  # this block nor any manifest exposes them - so they cannot be trimmed the
+  # way chart defaults were in #160.
+  #
+  # Enabling this also creates an identity of its own in the node resource
+  # group (azurekeyvaultsecretsprovider-*). Nothing uses it: each
+  # SecretProviderClass authenticates through workload identity with a
+  # federated identity per workload, the same mechanism as app-identity.tf, so
+  # Key Vault access is granted per consumer rather than to the whole cluster.
+  key_vault_secrets_provider {
+    # Without rotation the driver reads Key Vault once, at pod start, and the
+    # synced Kubernetes Secret never changes again - rotating a credential
+    # would mean restarting whatever mounts it. With it, a new value set in
+    # Key Vault reaches the synced Secret within one interval.
+    secret_rotation_enabled = true
+
+    # 2m is the default, declared because it sets the Key Vault bill: each
+    # poll is one read per secret per pod mounting the volume. At two secrets
+    # and one pod that is ~43k operations a month, which costs pennies at
+    # $0.03 per 10,000.
+    secret_rotation_interval = "2m"
+  }
+
   # Both channels below were previously undeclared, which meant Azure's
   # defaults decided when this cluster got reimaged. That is how the node
   # reimage at 01:37 on 2026-09-10 happened with nothing in this repo
