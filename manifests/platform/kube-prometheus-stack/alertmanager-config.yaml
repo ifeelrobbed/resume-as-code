@@ -106,11 +106,12 @@ spec:
     # urlSecret rather than url: the ping URL is a bearer credential, and
     # anyone holding it can suppress the alarm by pinging it themselves.
     # Referenced by Secret the same way the Discord webhook is, so it never
-    # lands in this repo. Unlike that one it is NOT added to
-    # alertmanagerSpec.secrets - the operator resolves a SecretKeySelector
-    # through the API and inlines the value into the generated config, so no
-    # pod mount is involved (confirmed by the Discord URL already appearing
-    # inlined there).
+    # lands in this repo; both Secrets are synced from Key Vault by
+    # platform/keyvault-sync (#145). Neither is in alertmanagerSpec.secrets -
+    # the operator resolves a SecretKeySelector through the API and inlines
+    # the value into the generated config, so no pod mount is involved
+    # (confirmed: the generated config carries both URLs inline and never
+    # refers to /etc/alertmanager/secrets).
     - name: heartbeat
       webhookConfigs:
         - urlSecret:

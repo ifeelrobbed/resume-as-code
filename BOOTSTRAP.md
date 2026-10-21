@@ -204,15 +204,15 @@ and who may read it, but never the values — an `azurerm_key_vault_secret` woul
 put each one in state and in CI plan output.
 
 This section used to say adding secrets management was worth doing "when a
-second secret makes it worth doing". There are now two, so that condition has
-been met — tracked in #145. The migration is in progress: the CSI driver add-on
-and the vault exist, but nothing in the cluster reads from the vault yet, so
-for now the values go in **both** places.
+second secret makes it worth doing". The second one arrived, and #145 moved
+both into Key Vault. Seeding the vault is now the only manual step; nothing is
+created in the cluster by hand.
 
 ### Seed the vault
 
 Needs the Secrets Officer grant from section 3. The vault survives a cluster
-rebuild, so this is a once-per-value step, repeated only to rotate one.
+rebuild, so this is a once-per-value step, repeated only to rotate one. On a
+rebuild there is nothing to do here at all.
 
 ```bash
 read -rs DISCORD_URL    # paste, then Enter; not echoed, not in shell history
@@ -229,33 +229,47 @@ unset DISCORD_URL HEARTBEAT_URL
 `read -rs` keeps the values out of shell history, and `-o none` stops the CLI
 echoing the stored secret back - its default output includes the value.
 
-### Create the in-cluster Secrets (until the migration lands)
+### How the values reach Alertmanager
 
-| Secret | Namespace | Contents |
-|---|---|---|
-| `alertmanager-discord-webhook` | `monitoring` | key `webhook-url` — the Discord webhook Alertmanager posts to |
-| `alertmanager-healthchecks-heartbeat` | `monitoring` | key `url` — the healthchecks.io ping URL Watchdog is routed to |
+`manifests/platform/keyvault-sync/` runs a pod whose only job is to keep the
+Key Vault CSI volume mounted, so the driver syncs these Kubernetes Secrets:
 
-```bash
-kubectl -n monitoring create secret generic alertmanager-discord-webhook \
-  --from-literal=webhook-url='<discord-webhook-url>'
+| Vault secret | Kubernetes Secret (`monitoring`) | Key | Contents |
+|---|---|---|---|
+| `alertmanager-discord-webhook` | `alertmanager-discord-webhook` | `webhook-url` | The Discord webhook Alertmanager posts to |
+| `alertmanager-healthchecks-heartbeat` | `alertmanager-healthchecks-heartbeat` | `url` | The healthchecks.io ping URL Watchdog is routed to |
 
-kubectl -n monitoring create secret generic alertmanager-healthchecks-heartbeat \
-  --from-literal=url='<healthchecks-io-ping-url>'
-```
-
-Both are referenced by
-`manifests/platform/kube-prometheus-stack/alertmanager-config.yaml` as
-`SecretKeySelector`s, and neither needs adding to
-`alertmanagerSpec.secrets` — the operator resolves the selector through the
-API and inlines the value into the generated config, so no pod mount is
-involved.
+`alertmanager-config.yaml` references both as `SecretKeySelector`s; the
+operator resolves them through the API and inlines the values into the
+generated config. The sync pod is separate from Alertmanager on purpose - see
+the comment at the top of `keyvault-sync/deployment.yaml`.
 
 Both are bearer credentials with no expiry: anyone holding the Discord URL can
 post to the channel, and anyone holding the ping URL can suppress the
-dead-man's-switch alarm by pinging it. Rotating either means recreating the
-Secret; the operator re-reads it and Alertmanager reloads within a minute or
-so, with no manifest change required.
+dead-man's-switch alarm by pinging it. **Rotating either** is
+`az keyvault secret set` as above, and nothing else: the driver polls every 2
+minutes and updates the synced Secret, then the operator regenerates the config
+and Alertmanager reloads.
+
+### Checking the sync
+
+```bash
+kubectl -n monitoring get secret alertmanager-discord-webhook \
+  alertmanager-healthchecks-heartbeat -L secrets-store.csi.k8s.io/managed
+```
+
+`MANAGED` must read `true` for both. A Secret without that label was not
+created by the driver, and the driver will not touch it: its create treats
+"already exists" as success, and it only watches Secrets carrying that label.
+So a hand-created Secret of the same name silently shadows the vault and is
+never rotated. Delete it and run
+`kubectl -n monitoring rollout restart deploy/keyvault-sync` to let the
+driver recreate it.
+
+If the pod is stuck in `ContainerCreating`, the reason is in its events: a
+token-exchange error means the federated credential or the client ID in
+`secretproviderclass.yaml` does not match; a 403 from the vault means the
+Secrets User grant is missing.
 
 ## 7. Grafana public dashboard
 
@@ -411,26 +425,32 @@ Delete it once the rebuild is verified; it bills on used data while it exists.
 
 1. **`terraform apply`.** State survives, so this recreates the cluster and
    reconciles everything around it. Three things fix themselves here, all
-   because they read from the aks module rather than being hardcoded: the
-   federated credential picks up the new OIDC issuer URL, the cluster
-   identity's Network Contributor grant on the ingress IP is recreated for the
-   new principal, and the node resource group is repopulated.
+   because they read from the aks module rather than being hardcoded: both
+   federated credentials (the app's and keyvault-sync's) pick up the new OIDC
+   issuer URL, the cluster identity's Network Contributor grant on the ingress
+   IP is recreated for the new principal, and the node resource group is
+   repopulated. It also re-enables the Key Vault CSI add-on, which is part of
+   the cluster resource.
 2. **`./bootstrap/install-argocd.sh`.** Installs Argo CD and applies
-   `manifests/root.yaml`; the app-of-apps takes over from there.
-3. **Recreate both Alertmanager secrets** - section 6. Alertmanager runs
-   without them, but every Discord notification fails and the healthchecks.io
-   heartbeat stops. The heartbeat is the one that bites: a rebuild that skips
-   it looks fine from inside the cluster while healthchecks.io alarms on a
-   dead man's switch that is not actually dead. Recreate it before the grace
-   window (30m) expires, or pause the check while rebuilding.
-4. **Re-enable the Grafana Public Dashboard share** - section 7. This produces a
+   `manifests/root.yaml`; the app-of-apps takes over from there. That
+   includes keyvault-sync, which pulls both Alertmanager secrets back out of
+   Key Vault - this used to be a manual step, and was the reason #145 existed.
+   Alertmanager's StatefulSet does not appear until they have synced, so it
+   lagging the rest of the platform by a few seconds is expected.
+
+   healthchecks.io will alarm if the rebuild outlasts its grace window (30m),
+   since the heartbeat stops while there is no Alertmanager to send it. Pause
+   the check for a planned rebuild.
+3. **Re-enable the Grafana Public Dashboard share** - section 7. This produces a
    *new* token, so update `GRAFANA_DASHBOARD_URL` in
    `manifests/apps/resume-site/deploy/deployment.yaml` and merge. A one-line
    manifest change rather than a code change, since #75 moved it out of the Go
    source. Leaving it stale is safe in the meantime: the homepage hides the
    link rather than rendering a dead one.
-5. **Verify**, in roughly this order:
+4. **Verify**, in roughly this order:
    - `kubectl get certificate -A` - all `READY=True`
+   - section 6's sync check - both Secrets present with `MANAGED=true`, which
+     proves keyvault-sync's token exchange works against the new issuer
    - `curl -s https://robertjcameron.com/status` - `visitorsLoaded: true` and a
      non-zero count, which proves the blob survived and the workload identity
      token exchange still works against the new cluster's issuer

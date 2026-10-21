@@ -1,0 +1,79 @@
+# A pod that does nothing but hold the Key Vault CSI volume mounted, so the
+# driver keeps the Secrets in secretproviderclass.yaml synced (#145).
+#
+# Why a pod of its own rather than the volume on Alertmanager: the operator
+# will not create the Alertmanager StatefulSet until every Secret its config
+# references exists, and the driver only creates a synced Secret once some pod
+# mounts the volume. On Alertmanager itself that is a deadlock on any fresh
+# install or rebuild. Confirmed in a throwaway namespace before building this:
+# no StatefulSet for as long as the Secret was missing, then a Ready pod within
+# ~12s of it appearing. Anything that creates the Secret from outside
+# Alertmanager's own pod unblocks it, and this is the smallest such thing.
+#
+# Lifecycle of what it produces: the driver sets the synced Secrets' owner to
+# this Deployment's ReplicaSets, not to the pod. So the Secrets survive pod
+# restarts and evictions, rollouts included, and are garbage-collected only if
+# the Deployment itself is deleted. If a synced Secret is ever deleted by hand,
+# the driver recreates it when a pod next mounts the volume -
+# `kubectl -n monitoring rollout restart deploy/keyvault-sync` forces that.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keyvault-sync
+  namespace: monitoring
+spec:
+  # One. The Secrets outlive the pod (see above), so a second replica would buy
+  # nothing during a drain.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keyvault-sync
+  template:
+    metadata:
+      labels:
+        app: keyvault-sync
+    spec:
+      serviceAccountName: keyvault-sync
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # pause's own documented non-root user.
+        runAsUser: 65535
+        runAsGroup: 65535
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pause
+          # pause, because the container's only job is to exist. Pinned by
+          # digest: it never needs updating for features, and a digest cannot
+          # be retagged under it.
+          image: registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            # pause uses well under 1Mi; these are floors for the scheduler,
+            # not estimates. The memory limit is the ceiling that keeps a
+            # surprise from becoming a node problem - same reasoning as
+            # resume-site's.
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              memory: 16Mi
+          volumeMounts:
+            # Mounted somewhere harmless. Nothing reads these files; the mount
+            # is what makes the driver fetch from Key Vault and sync.
+            - name: monitoring-keyvault
+              mountPath: /mnt/secrets-store
+              readOnly: true
+      volumes:
+        - name: monitoring-keyvault
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: monitoring-keyvault
