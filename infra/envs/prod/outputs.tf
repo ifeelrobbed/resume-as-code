@@ -33,6 +33,25 @@ output "app_identity_client_id" {
   value       = azurerm_user_assigned_identity.app.client_id
 }
 
+# The three values the monitoring namespace's SecretProviderClass is
+# parameterised with (keyvaultName, clientID, tenantId). Hardcoded there for
+# the same reason as the app's client ID - a plain-directory Argo CD source has
+# no templating - so read them from here rather than copying them around.
+output "key_vault_name" {
+  description = "Key Vault holding in-cluster third-party secrets"
+  value       = azurerm_key_vault.this.name
+}
+
+output "keyvault_sync_identity_client_id" {
+  description = "Client ID of the identity the monitoring keyvault-sync pod runs as"
+  value       = azurerm_user_assigned_identity.keyvault_sync.client_id
+}
+
+output "tenant_id" {
+  description = "Entra ID tenant the vault and identities belong to"
+  value       = data.azurerm_client_config.current.tenant_id
+}
+
 output "app_storage_account_name" {
   description = "Storage account holding the visitor count blob"
   value       = azurerm_storage_account.app.name

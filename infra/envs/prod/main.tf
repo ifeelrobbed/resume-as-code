@@ -32,6 +32,15 @@ provider "azurerm" {
       # workload identity.
       data_plane_available = false
     }
+
+    key_vault {
+      # The provider default is true: a `terraform destroy` of the vault would
+      # also purge it, skipping soft delete and its 90-day recovery window
+      # entirely. A deleted vault should stay recoverable; purging is a
+      # deliberate, separate step (`az keyvault purge`) if the name is ever
+      # needed back sooner.
+      purge_soft_delete_on_destroy = false
+    }
   }
 }
 

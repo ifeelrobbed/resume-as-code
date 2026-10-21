@@ -100,10 +100,23 @@ plan.
 on `rg-resume-site-prod`, so that workload role assignments can live in
 Terraform rather than accumulating in this file.
 
-It carries an ABAC condition restricting it to assigning **Network
-Contributor** only. This matters: `roleAssignments/write` places no inherent
-limit on *which* role may be granted, so an unconditioned grant would let the
-pipeline assign itself Owner — making it Owner-equivalent at that scope.
+It carries an ABAC condition restricting which roles it may assign. This
+matters: `roleAssignments/write` places no inherent limit on *which* role may
+be granted, so an unconditioned grant would let the pipeline assign itself
+Owner — making it Owner-equivalent at that scope.
+
+| Role | GUID | Needed for |
+|---|---|---|
+| Network Contributor | `4d97b98b-1d4f-4787-a291-c67834d212e7` | Cluster identity on the ingress public IP |
+| Storage Blob Data Contributor | `ba92f5b4-2d11-453d-a403-e96b0029c9fe` | App identity on the visitor-count container (#75) |
+| Key Vault Secrets User | `4633458b-17de-408a-b874-0445c86b69e6` | `keyvault-sync` identity on the vault (#145) |
+
+Key Vault Secrets User is the first role on this list that reads data, not
+just manages resources: it lets the pipeline grant read access to the vault's
+secrets, its own principal included. Accepted because the apply job is already
+gated by the `production` environment's required reviewer, and because the
+vault holds only re-issuable webhook URLs. Key Vault Secrets **Officer**
+(write) is deliberately not on the list — see the next section.
 
 To allow a new role, add its GUID to **both** brace lists in the condition
 (one governs create, the other delete). Verify a condition is actually attached
@@ -116,6 +129,26 @@ az role assignment list --all --assignee-object-id <apply-sp-object-id> \
 
 A `null` condition is the Owner-equivalent case — delete and recreate rather
 than leaving it.
+
+### Manual — writing to the Key Vault
+
+The vault uses Azure RBAC, and `Contributor` on the resource group covers the
+vault as a resource but none of its contents. Setting a secret needs **Key
+Vault Secrets Officer** on `kv-resume-site-prod`, held by the account that
+seeds secrets in section 6:
+
+```bash
+az role assignment create --role "Key Vault Secrets Officer" \
+  --assignee "$(az ad signed-in-user show --query id -o tsv)" \
+  --scope "$(az keyvault show -n kv-resume-site-prod --query id -o tsv)"
+```
+
+**Why not in code:** granting write access to secrets is exactly what the
+apply identity's condition is meant to keep out of the pipeline. Doing it by
+hand keeps the role off that list.
+
+Role assignments on the vault can take a few minutes to propagate; a 403 from
+`az keyvault secret set` immediately afterwards is usually just that.
 
 ### Not manual, and not mine
 
@@ -165,17 +198,38 @@ Print the initial admin password, change it, then delete
 
 ## 6. In-cluster secrets
 
-**Why not in code:** not yet migrated. The Secrets Store CSI driver add-on is
-enabled (`key_vault_secrets_provider` in `infra/modules/aks/main.tf`), but no
-Key Vault exists and nothing mounts the driver yet. The cluster has
-`oidc_issuer_enabled` and `workload_identity_enabled` on and already uses both
-for the app's Blob Storage access, so identity is in place too; what remains is
-the vault itself and the Alertmanager wiring.
+**Why not in code:** the values are third-party bearer credentials, and this
+repo is public. Terraform declares the vault (`infra/envs/prod/key-vault.tf`)
+and who may read it, but never the values — an `azurerm_key_vault_secret` would
+put each one in state and in CI plan output.
 
-This section used to say adding it was worth doing "when a second secret makes
-it worth doing". There are now two, so that condition has been met — tracked in
-#145. Until that migration lands both are created by hand and exist only in the
-cluster.
+This section used to say adding secrets management was worth doing "when a
+second secret makes it worth doing". There are now two, so that condition has
+been met — tracked in #145. The migration is in progress: the CSI driver add-on
+and the vault exist, but nothing in the cluster reads from the vault yet, so
+for now the values go in **both** places.
+
+### Seed the vault
+
+Needs the Secrets Officer grant from section 3. The vault survives a cluster
+rebuild, so this is a once-per-value step, repeated only to rotate one.
+
+```bash
+read -rs DISCORD_URL    # paste, then Enter; not echoed, not in shell history
+az keyvault secret set --vault-name kv-resume-site-prod \
+  --name alertmanager-discord-webhook --value "$DISCORD_URL" -o none
+
+read -rs HEARTBEAT_URL
+az keyvault secret set --vault-name kv-resume-site-prod \
+  --name alertmanager-healthchecks-heartbeat --value "$HEARTBEAT_URL" -o none
+
+unset DISCORD_URL HEARTBEAT_URL
+```
+
+`read -rs` keeps the values out of shell history, and `-o none` stops the CLI
+echoing the stored secret back - its default output includes the value.
+
+### Create the in-cluster Secrets (until the migration lands)
 
 | Secret | Namespace | Contents |
 |---|---|---|
@@ -296,7 +350,28 @@ cluster:
   `ServiceAccount/resume-site` stays correct.
 - **The visitor count blob.** The homepage number is not rebuilt from
   Prometheus and does not reset (#75).
+- **The Key Vault and its secrets**, along with the `keyvault-sync` identity
+  and its Secrets User grant. The federated credential is rewritten with the
+  new OIDC issuer by `terraform apply`, like the app's.
 - The VNet, subnet and NSG.
+
+If the vault itself is ever deleted (as opposed to the cluster), it sits
+soft-deleted for 90 days. `terraform apply` cannot recover it: the provider
+checks for soft-deleted vaults at subscription scope, the apply identity only
+has the resource group, and the resulting 403 is read as "none exists" — so
+the create fails on a name conflict instead. Recover it by hand, then bring it
+back under state:
+
+```bash
+az keyvault recover --name kv-resume-site-prod
+terraform -chdir=infra/envs/prod import azurerm_key_vault.this \
+  "$(az keyvault show -n kv-resume-site-prod --query id -o tsv)"
+```
+
+Recovery restores the secrets. Run `terraform plan` afterwards rather than
+assuming the vault's role assignments came back with it: if the Secrets User
+grant needs recreating, the plan shows it. If the vault was purged instead,
+let `terraform apply` create it fresh and re-seed it from section 6.
 
 **Terraform state** survives too, in `rg-resume-site-tfstate` - a separate
 resource group in this same subscription, not a separate subscription. Losing
