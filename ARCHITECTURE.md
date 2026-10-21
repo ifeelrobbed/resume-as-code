@@ -250,11 +250,27 @@ The app asks for `NewWorkloadIdentityCredential` explicitly rather than
 a missing projected token would silently fall back to some other identity;
 here that should be a hard failure.
 
-**Kubernetes Secrets: two exist, created by hand, moving to Key Vault.**
+**Third-party credentials: Key Vault, synced into Kubernetes Secrets.**
 `alertmanager-discord-webhook` and `alertmanager-healthchecks-heartbeat` in
-`monitoring` hold the Discord webhook and the healthchecks.io ping URL. Both
-are created out of band and documented in `BOOTSTRAP.md` - each URL is a
-credential, and this repo is public.
+`monitoring` hold the Discord webhook and the healthchecks.io ping URL - each
+a credential, in a public repo. The values live in `kv-resume-site-prod`, set
+by hand and never in Terraform state. The Secrets Store CSI driver syncs them
+into the cluster, authenticating with a federated identity of its own that can
+read the vault and nothing else.
+
+The sync runs in a dedicated `keyvault-sync` pod rather than on Alertmanager.
+The operator will not create the Alertmanager StatefulSet until every Secret
+its config references exists, and the driver only creates a synced Secret once
+a pod mounts the volume, so mounting it on Alertmanager deadlocks on any fresh
+install. Confirmed in a throwaway namespace before building it.
+
+Alertmanager has no Azure identity as a result. It never calls Azure itself,
+so an identity there would only matter through a CSI mount on its own pod,
+which is the deadlock above. Reading the URLs from mounted files instead is
+not available either: this operator version rejects `webhook_url_file` for
+Discord, and the typed AlertmanagerConfig only takes Secret references. The
+side benefit is that the only workload able to read the vault is a `pause`
+container - no code, no listening port.
 
 Key Vault and the CSI driver were deferred while there was one Secret: it did
 not justify the moving parts, and the case that actually mattered - the app
@@ -262,9 +278,11 @@ authenticating to Azure - was already handled without them. Standard-tier
 cost at this scale is negligible (no subscription fee; ~$0.03 per 10,000
 operations), so that was a judgement about complexity, not money. The second
 Secret reopened it (#145), and the deciding argument was disaster recovery:
-a hand-created Secret is the one rebuild step nothing verifies. The CSI
-driver's AKS add-on is now enabled, at a measured ~5m CPU / ~67Mi memory;
-the vault and the Alertmanager migration follow.
+a hand-created Secret was the one rebuild step nothing verified. The vault
+lives in the app resource group, which outlives the cluster, so a rebuild now
+gets both back with no manual step. Cost in the cluster: the driver at a
+measured ~5m CPU / ~67Mi memory, and the sync pod - a `pause` container -
+requesting 1m / 8Mi.
 
 Worth recording, since it is the kind of thing that is easy to quietly
 overwrite: this section used to predict that Grafana auth or an Argo CD

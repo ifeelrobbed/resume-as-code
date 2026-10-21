@@ -25,7 +25,7 @@ rolls it out. Nothing is applied by hand.
 
 | | |
 | --- | --- |
-| **Cloud** | Azure — AKS, VNet/NSG, Blob Storage, workload identity |
+| **Cloud** | Azure — AKS, VNet/NSG, Blob Storage, Key Vault, workload identity |
 | **IaC** | Terraform, remote state, OIDC-authenticated CI with a plan/apply split |
 | **Delivery** | Argo CD app-of-apps, self-managing; GitHub Actions |
 | **Runtime** | Go (stdlib `net/http` + `html/template`), distroless image |

@@ -11,12 +11,16 @@ spec:
     targetRevision: 88.2.0 # app version v0.93.0
     helm:
       values: |
-        # Routes to a Discord webhook. The credential itself is NOT here -
-        # it's a one-off `kubectl create secret` (alertmanager-discord-
-        # webhook, monitoring namespace), not committed to git, since this
-        # repo has no secrets management (Key Vault/CSI driver) yet - see
-        # ARCHITECTURE.md's Secrets section. Migrate to Key Vault/CSI once
-        # that exists.
+        # Routes to a Discord webhook. The credential itself is NOT here: it
+        # lives in Key Vault, and platform/keyvault-sync syncs it into the
+        # alertmanager-discord-webhook Secret in this namespace (#145) - see
+        # ARCHITECTURE.md's Secrets section.
+        #
+        # Nothing here mounts or references that sync, deliberately. The
+        # operator will not create this StatefulSet until every Secret the
+        # config references exists, so a CSI volume on Alertmanager's own pod
+        # would deadlock on a fresh install; keyvault-sync's deployment.yaml
+        # has the detail.
         #
         # Routing/receivers live in a native AlertmanagerConfig object
         # (kube-prometheus-stack/alertmanager-config.yaml), not the raw
@@ -31,8 +35,13 @@ spec:
         alertmanager:
           enabled: true
           alertmanagerSpec:
-            secrets:
-              - alertmanager-discord-webhook
+            # No `secrets:` list. It used to mount alertmanager-discord-webhook
+            # into the pod, which nothing read - the operator resolves
+            # alertmanager-config.yaml's SecretKeySelectors through the API and
+            # inlines the values into the generated config. A non-optional
+            # Secret volume would also hold this pod in ContainerCreating if
+            # the synced Secret were ever briefly absent, for no benefit.
+            #
             # Makes alertmanager-config.yaml (same namespace as this
             # Alertmanager object) THE config, rather than one of several
             # merged tenant configs - deliberately, since the latter path
