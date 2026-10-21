@@ -165,15 +165,17 @@ Print the initial admin password, change it, then delete
 
 ## 6. In-cluster secrets
 
-**Why not in code:** no secrets management for these — no Key Vault, no CSI
-driver, nothing federating them in. The cluster has `oidc_issuer_enabled` and
-`workload_identity_enabled` on and already uses both for the app's Blob
-Storage access, so the missing piece is delivery of static third-party
-credentials, not identity.
+**Why not in code:** not yet migrated. The Secrets Store CSI driver add-on is
+enabled (`key_vault_secrets_provider` in `infra/modules/aks/main.tf`), but no
+Key Vault exists and nothing mounts the driver yet. The cluster has
+`oidc_issuer_enabled` and `workload_identity_enabled` on and already uses both
+for the app's Blob Storage access, so identity is in place too; what remains is
+the vault itself and the Alertmanager wiring.
 
 This section used to say adding it was worth doing "when a second secret makes
 it worth doing". There are now two, so that condition has been met — tracked in
-#145. Until then both are created by hand and exist only in the cluster.
+#145. Until that migration lands both are created by hand and exist only in the
+cluster.
 
 | Secret | Namespace | Contents |
 |---|---|---|

@@ -250,16 +250,21 @@ The app asks for `NewWorkloadIdentityCredential` explicitly rather than
 a missing projected token would silently fall back to some other identity;
 here that should be a hard failure.
 
-**Kubernetes Secrets: one exists, created by hand.**
-`alertmanager-discord-webhook` in `monitoring` holds the URL Alertmanager
-posts to. It is created out of band and documented in `BOOTSTRAP.md` - a
-webhook URL is a credential, and this repo is public.
+**Kubernetes Secrets: two exist, created by hand, moving to Key Vault.**
+`alertmanager-discord-webhook` and `alertmanager-healthchecks-heartbeat` in
+`monitoring` hold the Discord webhook and the healthchecks.io ping URL. Both
+are created out of band and documented in `BOOTSTRAP.md` - each URL is a
+credential, and this repo is public.
 
-**Key Vault and the CSI driver stay deferred.** A single hand-created Secret
-does not justify the moving parts, and the case that actually mattered - the
-app authenticating to Azure - is already handled without them. Standard-tier
+Key Vault and the CSI driver were deferred while there was one Secret: it did
+not justify the moving parts, and the case that actually mattered - the app
+authenticating to Azure - was already handled without them. Standard-tier
 cost at this scale is negligible (no subscription fee; ~$0.03 per 10,000
-operations), so this is a judgement about complexity, not money.
+operations), so that was a judgement about complexity, not money. The second
+Secret reopened it (#145), and the deciding argument was disaster recovery:
+a hand-created Secret is the one rebuild step nothing verifies. The CSI
+driver's AKS add-on is now enabled, at a measured ~5m CPU / ~67Mi memory;
+the vault and the Alertmanager migration follow.
 
 Worth recording, since it is the kind of thing that is easy to quietly
 overwrite: this section used to predict that Grafana auth or an Argo CD
